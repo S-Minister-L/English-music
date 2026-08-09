@@ -697,9 +697,96 @@
    * ------------------------------------------------------------
    * 留空数组 [] → 使用默认的示例歌曲和 10 个默认分类
    * ============================================================ */
-  const SHARED_SONGS = [];       // ← 粘贴导出的歌曲数组（ [...] ）
-  const SHARED_CATEGORIES = [];  // ← 粘贴导出的分类数组（ [...] ）
+  // ===== 粘贴到 index.html 顶部对应的常量里 =====
+// 1. 替换 SHARED_SONGS = [...] 这一行（注意末尾不要漏掉分号）
+const SHARED_SONGS = [
+  {
+    "id": "mslze3h0cy7chm",
+    "title": "Yesterday Once More",
+    "artist": "Carpenters",
+    "category": "流行金曲",
+    "bilibiliBV": "BV1rz4y127F6",
+    "lyrics": "When I was young\nI'd listen to the radio\nWaiting for my favorite songs\nWhen they played I'd sing along\nIt made me smile\nThose were such happy times and not so long ago\nHow I wondered where they'd gone\nBut they're back again just like a long lost friend\nAll the songs I loved so well\nEvery sha‑la‑la‑la\nEvery wo‑o‑wo‑o\nStill shines\nEvery shing‑a‑ling‑a‑ling\nThat they're starting to sing\nSo fine\nWhen they get to the part\nWhere he's breaking her heart\nIt can really make me cry\nJust like before\nIt's yesterday once more\n(Shoobie do lang lang)\nLooking back on how it was in years gone by\nAnd the good times that I had\nMakes today seem rather sad\nSo much has changed\nIt was songs of love that I would sing to them\nAnd I'd memorize each word\nThose old melodies\nStill sound so good to me\nAs they melt the years away\nEvery sha‑la‑la‑la\nEvery wo‑o‑wo‑o\nStill shines\nEvery shing‑a‑ling‑a‑ling\nThat they're starting to sing\nSo fine\nAll my best memories\nCome back clearly to me\nSome can even make me cry\nJust like before\nIt's yesterday once more\n(Shoobie do lang lang)\nEvery sha‑la‑la‑la\nEvery wo‑o‑wo‑o\nStill shines\nEvery shing‑a‑ling‑a‑ling\nThat they're starting to sing\nSo fine\nEvery sha‑la‑la‑la\nEvery wo‑o‑wo‑o\nStill shines\nEvery shing‑a‑ling‑a‑ling\nThat they're starting to sing\nSo fine",
+    "lyricsZh": "年少时\n我总爱守在收音机旁\n等待我最喜爱的歌曲\n乐曲响起，我便随之哼唱\n心中满是欢畅\n那是多么美好的时光，仿佛就在不久前\n我总想知道它们去往何方\n而今它们再度归来，如同久别重逢的老友\n全是我曾深深热爱的乐章\n每一声 sha‑la‑la‑la\n每一声 wo‑o‑wo‑o\n依旧熠熠闪光\n每一段 shing‑a‑ling‑a‑ling\n当歌声缓缓响起\n如此悠扬动人\n当唱到那一段\n他令她心碎的篇章\n总能让我潸然落泪\n一如从前模样\n昨日再度重现\n（嘟嘟噜 嘟嘟噜）\n回首逝去的岁岁年年\n追忆那些曾经的美好\n反衬出如今的几分怅然\n世间早已物是人非\n那些旧日情歌，我曾随声吟唱\n每一句歌词都铭记心上\n那些古老的旋律\n听来依旧动人悠扬\n仿佛消融了岁月沧桑\n每一声 sha‑la‑la‑la\n每一声 wo‑o‑wo‑o\n依旧熠熠闪光\n每一段 shing‑a‑ling‑a‑ling\n当歌声缓缓响起\n如此悠扬动人\n所有珍贵的回忆\n在脑海中清晰浮现\n有些片段依旧让我泪湿眼眶\n一如从前模样\n昨日再度重现\n（嘟嘟噜 嘟嘟噜）\n每一声 sha‑la‑la‑la\n每一声 wo‑o‑wo‑o\n依旧熠熠闪光\n每一段 shing‑a‑ling‑a‑ling\n当歌声缓缓响起\n如此悠扬动人\n每一声 sha‑la‑la‑la\n每一声 wo‑o‑wo‑o\n依旧熠熠闪光\n每一段 shing‑a‑ling‑a‑ling\n当歌声缓缓响起\n如此悠扬动人",
+    "annotations": [
+      {
+        "id": "mslze3h0zo6xds",
+        "word": "listen to",
+        "phonetic": "/ˈlɪsən tu/",
+        "meaning": "听；倾听",
+        "grammar": "动词短语，后接名词或动名词",
+        "collocation": "listen to music / listen carefully",
+        "example": "I like to listen to music before sleep.",
+        "level": "basic"
+      },
+      {
+        "id": "mslze3h0uvgucy",
+        "word": "favorite",
+        "phonetic": "/ˈfeɪvərɪt/",
+        "meaning": "最喜爱的",
+        "grammar": "形容词，无比较级",
+        "collocation": "favorite song / favorite color",
+        "example": "This is my favorite book.",
+        "level": "basic"
+      },
+      {
+        "id": "mslze3h09d33lu",
+        "word": "radio",
+        "phonetic": "/ˈreɪdioʊ/",
+        "meaning": "收音机；无线电",
+        "grammar": "名词",
+        "collocation": "listen to the radio / radio station",
+        "example": "She turned on the radio to hear the news.",
+        "level": "basic"
+      },
+      {
+        "id": "mslze3h0i9qyvb",
+        "word": "play",
+        "phonetic": "/pleɪ/",
+        "meaning": "播放；演奏",
+        "grammar": "动词，可及物/不及物",
+        "collocation": "play a song / play the piano",
+        "example": "They played my favorite song at the party.",
+        "level": "basic"
+      },
+      {
+        "id": "mslze3h0x7s5cf",
+        "word": "sing along",
+        "phonetic": "/sɪŋ əˈlɔŋ/",
+        "meaning": "跟着唱（与别人一起唱）",
+        "grammar": "动词短语",
+        "collocation": "sing along with the radio / sing along to a song",
+        "example": "When the chorus came, everyone began to sing along.",
+        "level": "basic"
+      },
+      {
+        "id": "mslze3h004bslz",
+        "word": "smile",
+        "phonetic": "/smaɪl/",
+        "meaning": "微笑；露出笑容",
+        "grammar": "动词/名词",
+        "collocation": "give a smile / smile at someone",
+        "example": "Her smile brightened up the room.",
+        "level": "basic"
+      }
+    ]
+  }
+];
 
+// 2. 替换 SHARED_CATEGORIES = [...] 这一行
+const SHARED_CATEGORIES = [
+  "欧美女歌手",
+  "欧美男歌手",
+  "欧美组合",
+  "流行金曲",
+  "摇滚",
+  "乡村民谣",
+  "爵士蓝调",
+  "R&B/灵魂",
+  "影视原声",
+  "圣诞/节日"
+];
+// ===== 结束 =====
   // 虚拟分类名（始终存在于侧边栏，不可被用户删除/重命名）
   const VCAT_ALL = '全部歌曲';
   const VCAT_UNCATEGORIZED = '未分类';
