@@ -1,0 +1,2413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>英文歌自学分享 · English Song Learning</title>
+
+  <!-- ============================================================
+       CDN 引入 Supabase JS（云端留言板，无需本地安装）
+       ============================================================ -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    /* ============================================================
+       全局变量 · 浅色护眼配色
+       ============================================================ */
+    :root {
+      --bg: linear-gradient(135deg, #fdf2f8 0%, #eef6ff 45%, #f5f3ff 100%); /* 页面背景 */
+      --card: rgba(255, 255, 255, 0.78);        /* 卡片背景 */
+      --card-strong: rgba(255, 255, 255, 0.92);
+      --text: #2c3e50;        /* 主文字 */
+      --text-soft: #6b7280;   /* 次要文字 */
+      --primary: #4f46e5;     /* 主色调（按钮/链接） */
+      --primary-soft: #eef2ff;/* 主色浅底 */
+      --border: rgba(148, 163, 184, 0.28);      /* 边框 */
+      --basic: #2563eb;       /* 基础词高亮（蓝色） */
+      --basic-bg: #eff6ff;
+      --advanced: #db2777;    /* 高级语法词高亮（粉红） */
+      --advanced-bg: #fdf2f8;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+      --radius: 10px;
+    }
+
+    /* ============================================================
+       基础重置
+       ============================================================ */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(251, 207, 232, 0.8), transparent 38%),
+        radial-gradient(circle at 85% 16%, rgba(147, 197, 253, 0.45), transparent 34%),
+        linear-gradient(135deg, #fdf2f8 0%, #eef6ff 45%, #f5f3ff 100%);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: 80px; /* 给底部悬浮按钮留空间 */
+      min-height: 100%;
+      overflow-x: hidden;
+      position: relative;
+      isolation: isolate;
+    }
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      pointer-events: none;
+      z-index: -1;
+      filter: blur(70px);
+      opacity: 0.8;
+    }
+    body::before {
+      top: -8%; left: -8%;
+      width: 32vw; height: 32vw;
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 50%;
+      animation: float-soft 16s ease-in-out infinite alternate;
+    }
+    body::after {
+      right: -6%; bottom: -10%;
+      width: 36vw; height: 36vw;
+      background: rgba(191, 219, 254, 0.45);
+      border-radius: 50%;
+      animation: float-soft 20s ease-in-out infinite alternate-reverse;
+    }
+    @keyframes float-soft {
+      from { transform: translate3d(0, 0, 0) scale(1); }
+      to { transform: translate3d(24px, -22px, 0) scale(1.08); }
+    }
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button { font-family: inherit; cursor: pointer; border: none; }
+    input, textarea, select {
+      font-family: inherit; font-size: 14px;
+      padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: 6px; outline: none; width: 100%;
+      background: rgba(255, 255, 255, 0.9); color: var(--text);
+      backdrop-filter: blur(8px);
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft);
+    }
+    textarea { resize: vertical; min-height: 80px; }
+
+    /* ============================================================
+       顶部导航条
+       ============================================================ */
+    .topbar {
+      background: var(--card-strong);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex; align-items: center; gap: 16px;
+      position: sticky; top: 0; z-index: 50;
+      box-shadow: 0 12px 30px rgba(76, 82, 125, 0.08);
+      backdrop-filter: blur(16px);
+    }
+    .topbar .logo { font-size: 18px; font-weight: 700; color: var(--primary); }
+    .topbar .search {
+      flex: 1; max-width: 420px; position: relative;
+    }
+    .topbar .search input { padding-left: 32px; }
+    .topbar .search::before {
+      content: "🔍"; position: absolute; left: 10px; top: 50%;
+      transform: translateY(-50%); font-size: 13px; opacity: .6;
+    }
+    .topbar .nav-btns { margin-left: auto; display: flex; gap: 8px; }
+
+    /* ============================================================
+       通用按钮
+       ============================================================ */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 6px; padding: 8px 14px; border-radius: 6px;
+      font-size: 14px; font-weight: 500; transition: all .15s;
+      background: #f3f4f6; color: var(--text);
+    }
+    .btn:hover { background: #e5e7eb; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-success:hover { background: #15803d; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); }
+    .btn-ghost:hover { background: #f9fafb; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    /* ============================================================
+       主容器 + 侧边栏贴左布局
+       原则：侧边栏完全贴 viewport 左边缘，正文区域有舒适的阅读宽度与留白
+       ============================================================ */
+    /* 侧边栏：固定定位，左侧紧贴屏幕边缘；顶栏之下、全屏高度 */
+    .sidebar {
+      position: fixed; left: 0; top: 61px; bottom: 0;
+      width: 252px;
+      background: rgba(255, 255, 255, 0.7);
+      border-right: 1px solid var(--border);
+      padding: 22px 16px 16px;
+      overflow-y: auto;
+      z-index: 30;
+      backdrop-filter: blur(16px);
+    }
+    .sidebar .sb-title {
+      font-size: 12px; font-weight: 700; color: var(--text-soft);
+      padding: 0 6px 12px; text-transform: uppercase; letter-spacing: 1px;
+      border-bottom: 1px solid var(--border); margin-bottom: 10px;
+    }
+    .cat-list { display: flex; flex-direction: column; gap: 3px; }
+    .cat-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px; border-radius: 10px; cursor: pointer;
+      font-size: 14px; color: var(--text); transition: background .15s;
+      user-select: none;
+    }
+    .cat-item:hover { background: #f3f4f6; }
+    .cat-item.active {
+      background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+      color: var(--primary); font-weight: 600;
+      box-shadow: inset 3px 0 0 var(--primary);
+    }
+    .cat-item .label {
+      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      margin-right: 8px;
+    }
+    .cat-item .count {
+      background: #e5e7eb; color: var(--text-soft);
+      font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 500;
+      min-width: 20px; text-align: center;
+    }
+    .cat-item.active .count { background: var(--primary); color: #fff; }
+    .cat-item.unc-zero { opacity: .55; }
+    .sb-sep { height: 1px; background: var(--border); margin: 12px 6px; }
+    .sb-footer {
+      font-size: 11px; color: var(--text-soft);
+      padding: 8px 8px 2px; line-height: 1.6;
+    }
+
+    /* 主内容区：桌面端左偏移避免被侧边栏遮挡 */
+    .layout {
+      display: block;
+      margin-left: 252px;
+      padding: 28px 40px 48px;
+      max-width: 1120px;
+    }
+    /* 后台：无边栏，内容居中，宽度更宽松 */
+    body.view-admin .layout,
+    .admin-mode { margin-left: 0 !important; padding: 20px 40px 60px; max-width: 1200px; }
+
+    /* 主容器移除原 padding（由 layout 负责） */
+    .container { padding: 0; max-width: none; }
+
+    /* 移动端汉堡按钮 */
+    .sb-toggle {
+      display: none;
+      position: fixed; left: 12px; top: 72px; z-index: 80;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 8px 12px; cursor: pointer;
+      box-shadow: var(--shadow); font-size: 14px;
+    }
+    .sb-backdrop {
+      display: none;
+      position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 40;
+    }
+
+    /* 搜索栏 + 当前分类提示 */
+    .search-area {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 22px;
+    }
+    .search-area .search { flex: 1; }
+    .current-cat-hint {
+      font-size: 13px; color: var(--text-soft);
+      white-space: nowrap;
+      padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(8px);
+    }
+    .current-cat-hint b { color: var(--primary); font-weight: 600; }
+
+    /* 卡片网格 gap 加大，卡片更宽松 */
+    .song-grid {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    }
+    /* 后台视图：#app 无侧边栏，左右留白加大居中 */
+    .view-admin { padding: 28px 48px 60px; max-width: 1200px; margin: 0 auto; }
+
+    .song-card {
+      background: var(--card); border-radius: var(--radius);
+      padding: 20px 18px; box-shadow: 0 10px 24px rgba(76, 82, 125, 0.08);
+      cursor: pointer; transition: transform .15s, box-shadow .15s;
+      border: 1px solid rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(12px);
+    }
+    .song-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0,0,0,.08);
+      border-color: var(--primary-soft);
+    }
+    .song-card .title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+    .song-card .artist { font-size: 13px; color: var(--text-soft); margin-bottom: 12px; }
+    .song-card .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag {
+      display: inline-block; padding: 3px 9px; font-size: 11px;
+      background: var(--primary-soft); color: var(--primary);
+      border-radius: 10px;
+    }
+    .count-badge {
+      display: inline-block; padding: 2px 9px; font-size: 11px; font-weight: 500;
+      background: #e5e7eb; color: var(--text-soft); border-radius: 999px;
+    }
+    .empty-state {
+      text-align: center; padding: 80px 20px; color: var(--text-soft);
+    }
+    .empty-state .big { font-size: 56px; margin-bottom: 12px; }
+
+    /* ============================================================
+       单曲学习页布局（留白加大，阅读舒适）
+       ============================================================ */
+    .learn-header { margin-bottom: 26px; }
+    .learn-header .back { margin-bottom: 12px; }
+    .learn-header h1 { font-size: 26px; margin-bottom: 6px; }
+    .learn-header .artist { color: var(--text-soft); font-size: 14px; }
+
+    /* 播放器容器：横向布局，体积小巧，下方留白加大 */
+    .players {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      margin-bottom: 32px; align-items: flex-start; justify-content: flex-start;
+    }
+    .player-box {
+      background: var(--card); border-radius: var(--radius);
+      padding: 14px; box-shadow: var(--shadow);
+      /* 响应式：允许放大，桌面端最大 760px，移动端不小于 320px */
+      flex: 1 1 480px; max-width: 760px; min-width: 320px;
+    }
+    .player-box .label {
+      font-size: 12px; color: var(--text-soft);
+      margin-bottom: 8px; display: flex; align-items: center; gap: 4px;
+    }
+    .player-box .label .dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--primary);
+    }
+
+    /* B站 iframe 强制缩小尺寸（电脑最大400px、移动端自适应） */
+    .bili-wrap {
+      position: relative; width: 100%;
+      padding-top: 56.25%; /* 16:9 比例不变形 */
+      border-radius: 6px; overflow: hidden;
+      background: #000;
+    }
+    .bili-wrap iframe {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      border: 0; frameborder: 0;
+    }
+
+    /* 兜底提示框（播放器加载失败时显示） */
+    .fallback {
+      display: none; padding: 12px; background: #fef3c7;
+      border: 1px solid #fde68a; border-radius: 6px;
+      font-size: 13px; color: #92400e; text-align: center;
+    }
+    .fallback.show { display: block; }
+    .fallback a {
+      display: inline-block; margin-top: 6px;
+      padding: 4px 10px; background: #92400e; color: #fff;
+      border-radius: 4px; text-decoration: none; font-size: 12px;
+    }
+    .fallback a:hover { background: #78350f; }
+
+    /* ============================================================
+       歌词区（留白加大，行距更舒展）
+       ============================================================ */
+    .lyrics-toolbar {
+      display: flex; gap: 10px; align-items: center;
+      margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .lyrics-toolbar .mode-switch {
+      display: inline-flex; background: #e5e7eb; border-radius: 8px; padding: 3px;
+    }
+    .lyrics-toolbar .mode-switch button {
+      padding: 7px 14px; font-size: 13px; background: transparent;
+      color: var(--text-soft); border-radius: 6px;
+    }
+    .lyrics-toolbar .mode-switch button.active {
+      background: #fff; color: var(--primary); box-shadow: var(--shadow);
+    }
+    .lyrics-box {
+      background: var(--card); border-radius: var(--radius);
+      padding: 32px 36px; box-shadow: var(--shadow);
+      font-size: 16px; line-height: 2.2;
+    }
+    .lyrics-line { margin-bottom: 10px; }
+    .lyrics-line .zh {
+      display: block; color: var(--text-soft); font-size: 13px;
+      margin-top: 3px; line-height: 1.6;
+    }
+    /* 高亮单词样式：基础词蓝色、高级语法词粉红 */
+    .hl {
+      cursor: pointer; border-radius: 3px; padding: 1px 3px;
+      border-bottom: 2px dotted; transition: background .15s;
+      position: relative;
+    }
+    .hl.basic { color: var(--basic); background: var(--basic-bg); border-color: var(--basic); }
+    .hl.advanced { color: var(--advanced); background: var(--advanced-bg); border-color: var(--advanced); }
+    .hl:hover { filter: brightness(.95); }
+
+    /* ============================================================
+       批注弹窗（悬浮显示，轻薄简洁）
+       ============================================================ */
+    .anno-pop {
+      position: fixed; z-index: 100;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      max-width: 320px; min-width: 200px;
+      font-size: 13px; display: none;
+    }
+    .anno-pop.show { display: block; }
+    .anno-pop .word {
+      font-size: 16px; font-weight: 600; color: var(--text);
+    }
+    .anno-pop .phon { color: var(--text-soft); font-style: italic; margin-left: 6px; }
+    .anno-pop .row { margin-top: 6px; }
+    .anno-pop .row .k {
+      font-size: 11px; color: var(--text-soft);
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .anno-pop .row .v { color: var(--text); }
+    .anno-pop .close {
+      position: absolute; top: 6px; right: 8px;
+      cursor: pointer; color: var(--text-soft); font-size: 14px;
+    }
+
+    /* ============================================================
+       留言板（Supabase 云端）：留白更舒适
+       ============================================================ */
+    .msg-board {
+      background: var(--card); border-radius: var(--radius);
+      padding: 24px 26px; box-shadow: var(--shadow);
+      margin-top: 32px;
+    }
+    .msg-board h2 { font-size: 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 6px; }
+    .msg-form { display: grid; gap: 10px; margin-bottom: 20px; }
+    .msg-form .nick { max-width: 260px; }
+    .msg-form textarea { min-height: 70px; }
+    .msg-form .actions { display: flex; justify-content: flex-end; }
+    .msg-list { display: flex; flex-direction: column; gap: 12px; }
+    .msg-item {
+      padding: 10px 12px; border: 1px solid var(--border);
+      border-radius: 8px; background: #fafafa;
+    }
+    .msg-item .head {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 4px; flex-wrap: wrap;
+    }
+    .msg-item .nick {
+      font-weight: 600; color: var(--primary); font-size: 14px;
+    }
+    .msg-item .time { font-size: 12px; color: var(--text-soft); }
+    .msg-item .body { font-size: 14px; color: var(--text); word-break: break-word; }
+    .msg-item .del {
+      margin-left: auto; font-size: 12px; color: var(--danger);
+      background: transparent; cursor: pointer; padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .msg-item .del:hover { background: #fee2e2; }
+    .msg-loading, .msg-empty {
+      text-align: center; color: var(--text-soft); font-size: 13px;
+      padding: 16px;
+    }
+
+    /* ============================================================
+       悬浮切换按钮（前台/后台）
+       ============================================================ */
+    .float-btn {
+      position: fixed; right: 20px; bottom: 20px; z-index: 200;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: var(--primary); color: #fff;
+      box-shadow: 0 4px 12px rgba(79,70,229,.4);
+      font-size: 22px; display: flex; align-items: center; justify-content: center;
+      transition: transform .15s;
+    }
+    .float-btn:hover { transform: scale(1.08); }
+
+    /* ============================================================
+       Toast 轻提示
+       ============================================================ */
+    #toast {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 999; display: flex; flex-direction: column; gap: 8px;
+      pointer-events: none;
+    }
+    .toast-item {
+      background: rgba(17,24,39,.92); color: #fff;
+      padding: 10px 18px; border-radius: 6px; font-size: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.2);
+      animation: toastIn .2s ease;
+    }
+    .toast-item.success { background: var(--success); }
+    .toast-item.error { background: var(--danger); }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ============================================================
+       模态弹窗（用于批注编辑、密码登录等）
+       ============================================================ */
+    .modal-mask {
+      position: fixed; inset: 0; background: rgba(0,0,0,.4);
+      z-index: 300; display: none; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    .modal-mask.show { display: flex; }
+    .modal {
+      background: var(--card); border-radius: var(--radius);
+      padding: 20px; width: 100%; max-width: 480px;
+      box-shadow: 0 20px 40px rgba(0,0,0,.2);
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal h3 { margin-bottom: 12px; }
+    .modal .form-row { margin-bottom: 12px; }
+    .modal .form-row label {
+      display: block; font-size: 13px; color: var(--text-soft);
+      margin-bottom: 4px;
+    }
+    .modal .actions {
+      display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+    }
+
+    /* ============================================================
+       管理员后台（整体加宽留白）
+       ============================================================ */
+    .admin-tabs {
+      display: flex; gap: 6px; border-bottom: 1px solid var(--border);
+      margin-bottom: 24px; overflow-x: auto;
+    }
+    .admin-tabs button {
+      padding: 12px 18px; background: transparent; color: var(--text-soft);
+      border-bottom: 2px solid transparent; white-space: nowrap;
+      font-size: 14px;
+    }
+    .admin-tabs button.active {
+      color: var(--primary); border-bottom-color: var(--primary); font-weight: 600;
+    }
+    .admin-panel { background: var(--card); border-radius: var(--radius); padding: 26px 28px; box-shadow: var(--shadow); }
+    .admin-panel h2 { font-size: 18px; margin-bottom: 18px; }
+    .form-grid { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+    .form-grid .full { grid-column: 1 / -1; }
+    .form-grid label { font-size: 13px; color: var(--text-soft); display: block; margin-bottom: 4px; }
+    .form-grid .hint { font-size: 11px; color: var(--text-soft); margin-top: 2px; }
+
+    /* 后台列表条目留白放大 */
+    .admin-list { display: flex; flex-direction: column; gap: 10px; }
+    .admin-list-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px;
+    }
+    .admin-list-item .info { flex: 1; }
+    .admin-list-item .info .t { font-weight: 600; margin-bottom: 3px; }
+    .admin-list-item .info .s { font-size: 12px; color: var(--text-soft); }
+    .admin-list-item .ops { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+    /* 批注编辑器：左侧歌词、右侧批注列表 */
+    .anno-editor { display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
+    .anno-editor .lyrics-area {
+      background: #fafafa; padding: 20px; border-radius: 10px;
+      border: 1px solid var(--border); line-height: 2.1;
+      min-height: 320px; white-space: pre-wrap; user-select: text;
+    }
+    .anno-editor .lyrics-area::selection { background: var(--primary-soft); }
+    .anno-editor .anno-list { display: flex; flex-direction: column; gap: 10px; max-height: 540px; overflow-y: auto; }
+    .anno-card {
+      background: #fafafa; border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px; font-size: 13px;
+    }
+    .anno-card .w { font-weight: 600; color: var(--primary); }
+    .anno-card .ops { margin-top: 6px; display: flex; gap: 4px; }
+
+    /* 备份区 */
+    .backup-box { display: flex; flex-direction: column; gap: 12px; }
+    .backup-box .row {
+      display: flex; align-items: center; gap: 12px; padding: 12px;
+      border: 1px dashed var(--border); border-radius: 8px;
+    }
+    .backup-box .row .desc { flex: 1; font-size: 13px; color: var(--text-soft); }
+
+    /* 后台留言管理：列出所有歌曲的留言 */
+    .msg-mgmt-list { display: flex; flex-direction: column; gap: 12px; }
+    .msg-mgmt-group {
+      border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    }
+    .msg-mgmt-group .gtitle {
+      font-weight: 600; margin-bottom: 8px; color: var(--text);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    /* ============================================================
+       响应式：移动端适配
+       ============================================================ */
+    @media (max-width: 768px) {
+      .topbar { padding: 10px 14px; gap: 8px; }
+      .topbar .search { max-width: none; }
+      .topbar .nav-btns .btn-text { display: none; }
+      .players { flex-direction: column; gap: 14px; }
+      .player-box { max-width: 100%; }
+      .form-grid { grid-template-columns: 1fr; gap: 12px; }
+      .anno-editor { grid-template-columns: 1fr; gap: 14px; }
+      .lyrics-box { padding: 20px 18px; font-size: 15px; line-height: 2; }
+      .learn-header h1 { font-size: 20px; }
+      .msg-board { padding: 18px 16px; margin-top: 24px; }
+
+      /* 主内容区：取消桌面端 left margin，改为更宽松的水平内边距 */
+      .layout {
+        margin-left: 0;
+        padding: 58px 16px 60px; /* 顶部58给汉堡按钮留空间 */
+        max-width: none;
+      }
+      /* 后台：移动端减小外端留白 */
+      .view-admin { padding: 20px 14px 60px; }
+      .admin-panel { padding: 18px 16px; }
+
+      /* 歌卡片网格：移动端单列，卡片更宽 */
+      .song-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      .song-card { padding: 18px 16px; }
+
+      /* 侧边栏响应式：默认隐藏，汉堡按钮控制滑入 */
+      .sb-toggle { display: block; }
+      .sidebar {
+        position: fixed; top: 60px; left: -260px; bottom: 0;
+        width: 248px; max-height: none; height: calc(100% - 80px);
+        border-radius: 0 12px 12px 0;
+        border-right: 1px solid var(--border);
+        box-shadow: 4px 0 20px rgba(0,0,0,.1);
+        z-index: 60; transition: left .25s ease;
+      }
+      .sidebar.open { left: 0; }
+      .sb-backdrop.show { display: block; }
+      .search-area { flex-direction: column; align-items: stretch; gap: 10px; }
+      .current-cat-hint { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ====================== 顶部导航 ====================== -->
+  <header class="topbar">
+    <div class="logo">🎵 EnglishSong</div>
+    <div class="search">
+      <input id="searchInput" type="text" placeholder="搜索歌名 / 歌手 / 分类..." />
+    </div>
+    <div class="nav-btns">
+      <button class="btn btn-ghost btn-sm" id="homeBtn">🏠 <span class="btn-text">首页</span></button>
+    </div>
+  </header>
+
+  <!-- 移动端汉堡按钮 & 遮罩（JS 控制显示） -->
+  <button class="sb-toggle" id="sbToggle" onclick="toggleSidebar()">☰ 分类</button>
+  <div class="sb-backdrop" id="sbBackdrop" onclick="toggleSidebar(false)"></div>
+
+  <!-- ====================== 主视图容器（前台/后台均注入此处） ====================== -->
+  <main class="container" id="app"></main>
+
+  <!-- ====================== 批注悬浮弹窗 ====================== -->
+  <div class="anno-pop" id="annoPop">
+    <span class="close" onclick="hideAnnoPop()">×</span>
+    <div><span class="word" id="annoWord"></span><span class="phon" id="annoPhon"></span></div>
+    <div id="annoBody"></div>
+  </div>
+
+  <!-- ====================== 模态弹窗 ====================== -->
+  <div class="modal-mask" id="modalMask">
+    <div class="modal" id="modalBox"></div>
+  </div>
+
+  <!-- ====================== Toast 提示 ====================== -->
+  <div id="toast"></div>
+
+  <!-- ====================== 悬浮切换按钮 ====================== -->
+  <button class="float-btn" id="floatBtn" title="切换前台/后台">⚙️</button>
+
+  <!-- ============================================================
+       核心脚本：歌曲数据存 localStorage，留言数据存 Supabase 云端
+       ============================================================ -->
+  <script>
+  /* ============================================================
+   * ★★★ Supabase 云端数据库配置 ★★★
+   * 留言功能需对接 Supabase，请将下面两个变量替换为你自己项目的密钥
+   * 获取方式见文末教程「二、Supabase 注册与建表」
+   * 若未填写，留言板会自动降级为「只读提示」，不影响其他功能
+   * ============================================================ */
+  const SUPABASE_URL = 'https://vtwjucfbojthtnjdfyzn.supabase.co';  // 项目根 URL（已自动去除 /rest/v1 后缀）
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0d2p1Y2Zib2p0aHRuamRmeXpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDI3NDEsImV4cCI6MjEwMTc3ODc0MX0.jOcMtjZffGxqVxKD1Qh6DexSCu5kAvGcbBlku3h4cDI';
+
+  // 初始化 Supabase 客户端（密钥填写正确时返回客户端对象，否则为 null）
+  let supabaseClient = null;
+  function initSupabase() {
+    if (supabaseClient) return supabaseClient;
+    if (typeof window.supabase === 'undefined') return null;     // CDN 未加载成功
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY
+        || SUPABASE_URL.includes('在此粘贴')
+        || SUPABASE_ANON_KEY.includes('在此粘贴')) {
+      return null;                                                // 未配置密钥
+    }
+    try {
+      // supabase-js v2 通过 window.supabase.createClient 创建客户端
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      return supabaseClient;
+    } catch (e) {
+      console.error('Supabase 初始化失败：', e);
+      return null;
+    }
+  }
+
+  /* ============================================================
+   * 第一部分：数据层 · localStorage 封装（歌曲数据本地存储）
+   * 数据结构：
+   *   localStorage["esl_songs"] = JSON 数组
+   *   每首歌：{ id, title, artist, category, bilibiliBV, lyrics, lyricsZh, annotations:[...] }
+   *   每条批注：{ id, word, phonetic, meaning, grammar, collocation, example, level }
+   * ============================================================ */
+  const STORE_KEY = 'esl_songs';        // 歌曲数据键
+  const CAT_KEY   = 'esl_categories';   // 分类数据键
+  const AUTH_KEY  = 'esl_admin_auth';   // 后台登录态键
+  const ADMIN_PASSWORD = '99058122Wamm';       // ★ 后台密码，可在此处自行修改 ★
+                                          // 修改后记得同步更新 Supabase SQL 中的
+                                          // delete_message_admin 函数密码，见文末教程
+
+  /* ============================================================
+   * ★★★ 共享数据区：把后台添加的歌曲/分类同步给所有访问者 ★★★
+   * ------------------------------------------------------------
+   * 使用方法：
+   *   1. 在你已有完整数据的浏览器里 → 后台 → 「💾 JSON 备份」标签
+   *   2. 点击「生成共享代码」按钮 → 复制全部内容
+   *   3. 把复制的内容粘贴覆盖到下面 SHARED_SONGS 和 SHARED_CATEGORIES 的 [...] 里
+   *   4. 重新上传 index.html 到 GitHub → 所有访问者首次打开都会自动初始化这些歌曲
+   * ------------------------------------------------------------
+   * 留空数组 [] → 使用默认的示例歌曲和 10 个默认分类
+   * ============================================================ */
+  const SHARED_SONGS = [];       // ← 粘贴导出的歌曲数组（ [...] ）
+  const SHARED_CATEGORIES = [];  // ← 粘贴导出的分类数组（ [...] ）
+
+  // 虚拟分类名（始终存在于侧边栏，不可被用户删除/重命名）
+  const VCAT_ALL = '全部歌曲';
+  const VCAT_UNCATEGORIZED = '未分类';
+
+  /* ---------- 安全存储封装（防止 Safari Tracking Prevention / 隐私模式抛错） ---------- */
+  function safeLocalGet(key, fallback = null) {
+    try { return localStorage.getItem(key); } catch (e) { return fallback; }
+  }
+  function safeLocalSet(key, value) {
+    try { localStorage.setItem(key, value); return true; }
+    catch (e) { console.warn('localStorage 写入失败：', e); return false; }
+  }
+  function safeSessionGet(key, fallback = null) {
+    try { return sessionStorage.getItem(key); } catch (e) { return fallback; }
+  }
+  function safeSessionSet(key, value) {
+    try { sessionStorage.setItem(key, value); return true; }
+    catch (e) { console.warn('sessionStorage 写入失败：', e); return false; }
+  }
+  function safeSessionRemove(key) {
+    try { sessionStorage.removeItem(key); } catch (e) { /* ignore */ }
+  }
+
+  // 读取全部歌曲
+  function loadSongs() {
+    try {
+      const raw = safeLocalGet(STORE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+  // 保存全部歌曲
+  function saveSongs(list) {
+    if (!safeLocalSet(STORE_KEY, JSON.stringify(list))) {
+      toast('本地保存失败（隐私模式？）', 'error');
+    }
+  }
+  // 生成唯一ID
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  /* ---------- 分类数据层（经验 524439：展示名收敛到 getCategoryDisplayName） ---------- */
+  // 默认分类（首次运行初始化）
+  const DEFAULT_CATEGORIES = [
+    '欧美女歌手', '欧美男歌手', '欧美组合', '流行金曲', '摇滚',
+    '乡村民谣', '爵士蓝调', 'R&B/灵魂', '影视原声', '圣诞/节日'
+  ];
+  function loadCategories() {
+    try {
+      const raw = safeLocalGet(CAT_KEY);
+      if (!raw) return DEFAULT_CATEGORIES.slice();
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return DEFAULT_CATEGORIES.slice();
+      return arr.filter(s => typeof s === 'string' && s.trim().length > 0);
+    } catch (e) { return DEFAULT_CATEGORIES.slice(); }
+  }
+  function saveCategories(list) {
+    safeLocalSet(CAT_KEY, JSON.stringify(list));
+  }
+  // 把一个分类名映射为用于展示的友好名（向后兼容：空值 → 未分类）
+  function getCategoryDisplayName(name) {
+    if (!name || !name.trim()) return VCAT_UNCATEGORIZED;
+    return name;
+  }
+  // 判断某分类是否是虚拟分类（不能被删除/重命名）
+  function isVirtualCategory(name) {
+    return name === VCAT_ALL || name === VCAT_UNCATEGORIZED;
+  }
+  // 计算各分类的歌曲数量 { 分类名: 数量 }（包含 全部歌曲 / 未分类）
+  function computeCategoryCounts(songs) {
+    const map = {};
+    for (const s of songs) {
+      const k = getCategoryDisplayName(s.category);
+      map[k] = (map[k] || 0) + 1;
+    }
+    map[VCAT_ALL] = songs.length;
+    if (!map[VCAT_UNCATEGORIZED]) map[VCAT_UNCATEGORIZED] = 0;
+    return map;
+  }
+  // 增加分类：重复则返回 false
+  function addCategory(newName) {
+    newName = (newName || '').trim();
+    if (!newName) { toast('分类名不能为空', 'error'); return false; }
+    if (isVirtualCategory(newName)) { toast('该分类名是保留词，请换一个', 'error'); return false; }
+    const list = loadCategories();
+    if (list.some(c => c === newName)) { toast('该分类已存在', 'error'); return false; }
+    list.push(newName);
+    saveCategories(list);
+    return true;
+  }
+  // 重命名分类：同步更新所有 song.category
+  function renameCategory(oldName, newName) {
+    newName = (newName || '').trim();
+    if (!newName) { toast('新分类名不能为空', 'error'); return false; }
+    if (isVirtualCategory(oldName)) { toast('系统内置分类不可重命名', 'error'); return false; }
+    if (isVirtualCategory(newName)) { toast('新分类名是保留词', 'error'); return false; }
+    const list = loadCategories();
+    const idx = list.indexOf(oldName);
+    if (idx < 0) { toast('原分类不存在', 'error'); return false; }
+    if (list.indexOf(newName) >= 0 && newName !== oldName) { toast('新分类名已存在', 'error'); return false; }
+    list[idx] = newName;
+    saveCategories(list);
+    // 同步所有歌曲的分类字段
+    const songs = loadSongs();
+    let changed = 0;
+    for (const s of songs) {
+      if (s.category === oldName) { s.category = newName; changed++; }
+    }
+    if (changed > 0) saveSongs(songs);
+    toast(`分类已重命名，${changed} 首歌曲同步更新`, 'success');
+    return true;
+  }
+  // 删除分类：若该分类下有歌曲，移动到未分类
+  function deleteCategory(name) {
+    if (isVirtualCategory(name)) { toast('系统内置分类不可删除', 'error'); return false; }
+    const list = loadCategories();
+    const idx = list.indexOf(name);
+    if (idx < 0) { toast('分类不存在', 'error'); return false; }
+    list.splice(idx, 1);
+    saveCategories(list);
+    const songs = loadSongs();
+    let moved = 0;
+    for (const s of songs) {
+      if (s.category === name) { s.category = ''; moved++; }
+    }
+    if (moved > 0) { saveSongs(songs); toast(`已删除「${name}」，${moved} 首歌移动到「未分类」`, 'success'); }
+    else toast(`已删除「${name}」`, 'success');
+    return true;
+  }
+  // 上移 / 下移排序（index = 目标分类在列表中的位置）
+  function moveCategory(name, direction) {
+    const list = loadCategories();
+    const idx = list.indexOf(name);
+    if (idx < 0) return false;
+    const target = idx + direction;
+    if (target < 0 || target >= list.length) return false; // 边界
+    [list[idx], list[target]] = [list[target], list[idx]];
+    saveCategories(list);
+    return true;
+  }
+
+  // 默认示例数据（首次访问时初始化，方便用户参考结构）
+  function seedDemoIfEmpty() {
+    // 1. 初始化分类：优先使用 SHARED_CATEGORIES，否则用 DEFAULT_CATEGORIES
+    const raw = safeLocalGet(CAT_KEY);
+    if (!raw) {
+      const initCats = (SHARED_CATEGORIES && SHARED_CATEGORIES.length > 0)
+        ? SHARED_CATEGORIES.slice()
+        : DEFAULT_CATEGORIES.slice();
+      saveCategories(initCats);
+    }
+    // 1b. 兼容性修复：旧用户歌曲里可能含有「不在分类列表中」的旧分类名。
+    //     扫描所有歌曲的分类字段，把缺失的分类自动追加进列表。
+    const songs = loadSongs();
+    if (songs.length > 0) {
+      const cats = loadCategories();
+      const set = new Set(cats);
+      let changed = false;
+      for (const s of songs) {
+        const k = (s.category || '').trim();
+        if (k && !set.has(k) && !isVirtualCategory(k)) { set.add(k); cats.push(k); changed = true; }
+      }
+      if (changed) saveCategories(cats);
+    }
+    // 2. 初始化歌曲：优先使用 SHARED_SONGS，否则用单首示例歌曲
+    if (songs.length > 0) return;
+    if (SHARED_SONGS && SHARED_SONGS.length > 0) {
+      // 用 SHARED_SONGS 初始化（为每首歌重新生成 id 避免冲突）
+      const cloned = SHARED_SONGS.map(s => ({
+        ...s,
+        id: uid(),
+        annotations: (s.annotations || []).map(a => ({ ...a, id: uid() }))
+      }));
+      saveSongs(cloned);
+      return;
+    }
+    // 回退：默认示例歌曲（Yesterday Once More + 6 个批注）
+    const demo = {
+      id: uid(),
+      title: 'Yesterday Once More',
+      artist: 'Carpenters',
+      category: '流行金曲',
+      bilibiliBV: 'BV1Gp4y1W7qg',      // B站BV号（示例）
+      lyrics: 'When I was young\nI\'d listen to the radio\nWaiting for my favorite songs\nWhen they played I\'d sing along\nIt made me smile',
+      lyricsZh: '当我年轻时\n我会听收音机\n等待我最爱的歌曲\n当它们播放时我会跟着唱\n那让我微笑',
+      annotations: [
+        {
+          id: uid(), word: 'listen to', phonetic: '/ˈlɪsən tu/',
+          meaning: '听；倾听', grammar: '动词短语，后接名词或动名词',
+          collocation: 'listen to music / listen carefully',
+          example: 'I like to listen to music before sleep.',
+          level: 'basic'
+        },
+        {
+          id: uid(), word: 'favorite', phonetic: '/ˈfeɪvərɪt/',
+          meaning: '最喜爱的', grammar: '形容词，无比较级',
+          collocation: 'favorite song / favorite color',
+          example: 'This is my favorite book.',
+          level: 'basic'
+        },
+        {
+          id: uid(), word: 'radio', phonetic: '/ˈreɪdioʊ/',
+          meaning: '收音机；无线电', grammar: '名词',
+          collocation: 'listen to the radio / radio station',
+          example: 'She turned on the radio to hear the news.',
+          level: 'basic'
+        },
+        {
+          id: uid(), word: 'play', phonetic: '/pleɪ/',
+          meaning: '播放；演奏', grammar: '动词，可及物/不及物',
+          collocation: 'play a song / play the piano',
+          example: 'They played my favorite song at the party.',
+          level: 'basic'
+        },
+        {
+          id: uid(), word: 'sing along', phonetic: '/sɪŋ əˈlɔŋ/',
+          meaning: '跟着唱（与别人一起唱）', grammar: '动词短语',
+          collocation: 'sing along with the radio / sing along to a song',
+          example: 'When the chorus came, everyone began to sing along.',
+          level: 'basic'
+        },
+        {
+          id: uid(), word: 'smile', phonetic: '/smaɪl/',
+          meaning: '微笑；露出笑容', grammar: '动词/名词',
+          collocation: 'give a smile / smile at someone',
+          example: 'Her smile brightened up the room.',
+          level: 'basic'
+        }
+      ]
+    };
+    saveSongs([demo]);
+  }
+
+  /* ============================================================
+   * 第二部分：轻提示 Toast
+   * ============================================================ */
+  function toast(msg, type = '') {
+    const el = document.createElement('div');
+    el.className = 'toast-item ' + type;
+    el.textContent = msg;
+    document.getElementById('toast').appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s';
+      setTimeout(() => el.remove(), 300); }, 2200);
+  }
+
+  /* ============================================================
+   * 第三部分：模态弹窗
+   * ============================================================ */
+  function openModal(html) {
+    document.getElementById('modalBox').innerHTML = html;
+    document.getElementById('modalMask').classList.add('show');
+  }
+  function closeModal() {
+    document.getElementById('modalMask').classList.remove('show');
+    document.getElementById('modalBox').innerHTML = '';
+  }
+  document.getElementById('modalMask').addEventListener('click', e => {
+    if (e.target.id === 'modalMask') closeModal();
+  });
+
+  /* ============================================================
+   * 第四部分：视图路由（前台列表 / 前台学习页 / 后台）
+   *   通过内存状态切换，无页面刷新
+   * ============================================================ */
+  let currentView = 'home';     // home | learn | admin
+  let currentSongId = null;
+  let isAdmin = safeSessionGet(AUTH_KEY) === '1';
+  let lyricsMode = 'bilingual'; // bilingual(中英对照) | en(纯英文)
+  let currentCategory = VCAT_ALL;  // 当前侧边栏激活分类
+  let sidebarOpen = false;         // 移动端侧边栏开/关
+
+  // 侧边栏 HTML 构建：在首页/学习页显示；后台不显示
+  function buildSidebarHtml() {
+    const songs = loadSongs();
+    const counts = computeCategoryCounts(songs);
+    const userCats = loadCategories();
+    // 侧边栏展示顺序：全部歌曲 → 用户自定义分类 → 未分类
+    const items = [
+      { name: VCAT_ALL, virtual: true },
+      ...userCats.map(c => ({ name: c, virtual: false })),
+    ];
+    // 未分类仅在数量 > 0 时展示（或有歌曲但 category 不在列表中）
+    if (counts[VCAT_UNCATEGORIZED] > 0) items.push({ name: VCAT_UNCATEGORIZED, virtual: true, uncategorized: true });
+
+    const catItems = items.map(it => {
+      const cnt = counts[it.name] || 0;
+      const active = (currentCategory === it.name) ? 'active' : '';
+      const uncZero = (it.uncategorized && cnt === 0) ? 'unc-zero' : '';
+      return `
+        <div class="cat-item ${active} ${uncZero}" onclick="selectCategory('${escapeAttr(it.name)}')">
+          <span class="label">${escapeHtml(it.name)}</span>
+          <span class="count">${cnt}</span>
+        </div>`;
+    }).join('');
+
+    const adminTip = isAdmin
+      ? '💡 后台可增删改排序分类'
+      : '💡 管理员可在后台添加/编辑分类';
+
+    return `
+      <aside class="sidebar ${sidebarOpen ? 'open' : ''}">
+        <div class="sb-title">📚 歌曲分类</div>
+        <div class="cat-list">${catItems}</div>
+        <div class="sb-sep"></div>
+        <div class="sb-footer">
+          共 ${songs.length} 首歌<br/>
+          ${adminTip}
+        </div>
+      </aside>`;
+  }
+
+  // 切分类（路由回首页；搜索词保留，实现叠加过滤）
+  function selectCategory(name) {
+    currentCategory = name;
+    sidebarOpen = false;
+    document.getElementById('sbBackdrop').classList.remove('show');
+    document.querySelector('.sidebar') && document.querySelector('.sidebar').classList.remove('open');
+    if (currentView !== 'home') { currentView = 'home'; }
+    render();
+  }
+  function toggleSidebar(force) {
+    sidebarOpen = (force !== undefined) ? force : !sidebarOpen;
+    const sb = document.querySelector('.sidebar');
+    const bd = document.getElementById('sbBackdrop');
+    if (sb) sb.classList.toggle('open', sidebarOpen);
+    if (bd) bd.classList.toggle('show', sidebarOpen);
+  }
+
+  function render() {
+    const app = document.getElementById('app');
+    // 给 #app 加视图类名，用于 CSS 根据前台/后台切换 padding / 宽度
+    app.className = 'container view-' + currentView;
+    // 分类侧边栏 + 汉堡按钮：仅 home/learn 显示，后台隐藏
+    const sbHide = document.getElementById('sbToggle');
+    if (sbHide) sbHide.style.display = (currentView === 'admin') ? 'none' : '';
+    // 后台视图：隐藏左侧侧边栏（避免残留的 fixed sidebar 仍占位）
+    const sidebarEl = document.querySelector('.sidebar');
+    if (currentView === 'admin') {
+      if (sidebarEl) sidebarEl.style.display = 'none';
+      const bd = document.getElementById('sbBackdrop');
+      if (bd) bd.classList.remove('show');
+    } else if (sidebarEl) {
+      sidebarEl.style.display = ''; // 恢复
+    }
+
+    if (currentView === 'home') {
+      renderHome(app);
+    } else if (currentView === 'learn') {
+      renderLearn(app, currentSongId);
+    } else if (currentView === 'admin') {
+      renderAdmin(app);
+    }
+    // 悬浮按钮图标随状态变化
+    document.getElementById('floatBtn').textContent = (currentView === 'admin') ? '🏠' : '⚙️';
+  }
+
+  // 悬浮按钮点击逻辑：进入后台需密码验证
+  document.getElementById('floatBtn').addEventListener('click', () => {
+    if (currentView === 'admin') {
+      // 当前已在后台，点击返回前台
+      currentView = 'home'; render();
+    } else {
+      // 进入后台：检查登录态
+      if (isAdmin) {
+        currentView = 'admin'; render();
+      } else {
+        promptAdminLogin();
+      }
+    }
+  });
+  // 顶部首页按钮
+  document.getElementById('homeBtn').addEventListener('click', () => {
+    currentView = 'home'; render();
+  });
+
+  // 搜索框输入：实时过滤
+  document.getElementById('searchInput').addEventListener('input', () => {
+    if (currentView === 'home') render();
+  });
+
+  // 后台密码登录弹窗
+  function promptAdminLogin() {
+    openModal(`
+      <h3>🔐 管理员登录</h3>
+      <div class="form-row">
+        <label>请输入后台密码（默认：admin）</label>
+        <input type="password" id="pwdInput" placeholder="输入密码..." autocomplete="off" />
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="doLogin()">登录</button>
+      </div>
+    `);
+    // 回车提交
+    setTimeout(() => {
+      const inp = document.getElementById('pwdInput');
+      if (inp) {
+        inp.focus();
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+      }
+    }, 50);
+  }
+  // 登录验证
+  function doLogin() {
+    const v = document.getElementById('pwdInput').value;
+    if (v === ADMIN_PASSWORD) {
+      isAdmin = true;
+      safeSessionSet(AUTH_KEY, '1');
+      closeModal();
+      toast('登录成功，欢迎进入后台', 'success');
+      currentView = 'admin'; render();
+    } else {
+      toast('密码错误', 'error');
+    }
+  }
+  // 退出登录
+  function logoutAdmin() {
+    isAdmin = false;
+    safeSessionRemove(AUTH_KEY);
+    currentView = 'home'; render();
+    toast('已退出后台');
+  }
+
+  /* ============================================================
+   * 第五部分：前台 · 歌曲列表页
+   * ============================================================ */
+  function renderHome(app) {
+    const kw = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+    // 第一步：分类过滤（与搜索叠加）
+    const catFiltered = loadSongs().filter(s => {
+      if (currentCategory === VCAT_ALL) return true;
+      if (currentCategory === VCAT_UNCATEGORIZED) {
+        return !s.category || s.category.trim() === '';
+      }
+      return (s.category || '') === currentCategory;
+    });
+    // 第二步：关键词搜索
+    const list = catFiltered.filter(s => {
+      if (!kw) return true;
+      return (s.title || '').toLowerCase().includes(kw)
+          || (s.artist || '').toLowerCase().includes(kw)
+          || (s.category || '').toLowerCase().includes(kw);
+    });
+
+    const hint = (currentCategory === VCAT_ALL)
+      ? `共 ${list.length} 首${kw ? ' 匹配结果' : ''}`
+      : `<b>${escapeHtml(currentCategory)}</b> · ${list.length} 首${kw ? ' 匹配' : ''}`;
+
+    if (list.length === 0) {
+      app.innerHTML = `
+        <div class="layout">
+          ${buildSidebarHtml()}
+          <div>
+            <div class="search-area">
+              <div class="current-cat-hint">${hint}</div>
+            </div>
+            <div class="empty-state">
+              <div class="big">🎵</div>
+              <div>${(currentCategory !== VCAT_ALL) ? '该分类下暂无歌曲' : (kw ? '没有找到匹配的歌曲' : '还没有歌曲，点击右下角 ⚙️ 进入后台添加')}</div>
+            </div>
+          </div>
+        </div>`;
+      return;
+    }
+
+    app.innerHTML = `
+      <div class="layout">
+        ${buildSidebarHtml()}
+        <div>
+          <div class="search-area">
+            <div class="current-cat-hint">${hint}</div>
+          </div>
+          <div class="song-grid">
+            ${list.map(s => `
+              <div class="song-card" onclick="goLearn('${s.id}')">
+                <div class="title">${escapeHtml(s.title)}</div>
+                <div class="artist">${escapeHtml(s.artist)}</div>
+                <div class="tags">
+                  ${s.category ? `<span class="tag">${escapeHtml(s.category)}</span>` : `<span class="tag">未分类</span>`}
+                  <span class="tag">${(s.annotations || []).length} 词批注</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // 跳转学习页
+  function goLearn(id) {
+    currentSongId = id;
+    currentView = 'learn';
+    render();
+  }
+
+  /* ============================================================
+   * 第六部分：前台 · 单曲学习页
+   *   包含：B站视频播放器、歌词区、留言板
+   * ============================================================ */
+  function renderLearn(app, songId) {
+    const song = loadSongs().find(s => s.id === songId);
+    if (!song) {
+      app.innerHTML = `
+        <div class="layout">
+          ${buildSidebarHtml()}
+          <div>
+            <div class="empty-state">
+              <div class="big">😕</div>
+              <div>歌曲不存在 <button class="btn btn-ghost btn-sm" onclick="goHome()">返回首页</button></div>
+            </div>
+          </div>
+        </div>`;
+      return;
+    }
+
+    // 中文名单行翻译数组（按 \n 切分，便于中英对照）
+    const enLines = (song.lyrics || '').split('\n');
+    const zhLines = (song.lyricsZh || '').split('\n');
+
+    app.innerHTML = `
+      <div class="layout">
+        ${buildSidebarHtml()}
+        <div>
+          <div class="learn-header">
+            <button class="btn btn-ghost btn-sm back" onclick="goHome()">← 返回列表</button>
+            <h1>${escapeHtml(song.title)}</h1>
+            <div class="artist">${escapeHtml(song.artist)} · ${escapeHtml(getCategoryDisplayName(song.category))}</div>
+          </div>
+
+          <!-- ===== B站视频播放器（极简缩小版，关闭弹幕） ===== -->
+          <div class="players">
+            <div class="player-box">
+              <div class="label"><span class="dot" style="background:#fb7299"></span>B站视频播放器</div>
+              <div class="bili-wrap">
+                <iframe src="${buildBiliSrc(song.bilibiliBV)}"
+                        scrolling="no" border="0" frameborder="no"
+                        framespacing="0" allowfullscreen="true"
+                        sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+              </div>
+              <div class="fallback" id="biliFallback">
+                ⚠️ B站视频加载失败？可前往 B 站搜索
+                <a href="https://search.bilibili.com/all?keyword=${encodeURIComponent(song.title + ' ' + song.artist)}"
+                   target="_blank" rel="noopener">📺 去 B 站搜索</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== 歌词区 ===== -->
+          <div class="lyrics-toolbar">
+            <div class="mode-switch">
+              <button class="${lyricsMode === 'bilingual' ? 'active' : ''}" onclick="setLyricsMode('bilingual')">中英对照</button>
+              <button class="${lyricsMode === 'en' ? 'active' : ''}" onclick="setLyricsMode('en')">纯英文</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="copyLyrics()">📋 复制歌词</button>
+          </div>
+          <div class="lyrics-box" id="lyricsBox">
+            ${renderLyricsHtml(song, enLines, zhLines)}
+          </div>
+
+          <!-- ===== 留言板（Supabase 云端） ===== -->
+          <div class="msg-board">
+            <h2>💬 留言区 <span style="font-size:12px;color:var(--text-soft);font-weight:400">（云端共享，匿名发布）</span></h2>
+            <div class="msg-form">
+              <input type="text" id="msgNick" class="nick" placeholder="昵称（必填，2-20字）" maxlength="20" />
+              <textarea id="msgContent" placeholder="写下你对这首歌的感想、学习心得..." maxlength="500"></textarea>
+              <div class="actions">
+                <button class="btn btn-primary btn-sm" onclick="submitMessage()">提交留言</button>
+              </div>
+            </div>
+            <div class="msg-list" id="msgList">
+              <div class="msg-loading">留言加载中...</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    // 渲染后初始化播放器检测 + 加载留言
+    setupPlayerFallbackDetection(song);
+    loadMessages(song.id);
+  }
+
+  // 构造 B站 iframe src：关闭弹幕、隐藏多余信息、自动暂停起始
+  function buildBiliSrc(bv) {
+    if (!bv) return 'about:blank';
+    // 参数说明：danmaku=0 关弹幕；high_quality=1 高清；as=0 不自动播放
+    // 页面参数 page=1，不显示登录态
+    return `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}&page=1&danmaku=0&high_quality=1&as=0`;
+  }
+
+  // 播放器加载失败检测：B站 iframe 加载失败时展示兜底按钮
+  function setupPlayerFallbackDetection(song) {
+    const iframe = document.querySelector('.bili-wrap iframe');
+    const bfb = document.getElementById('biliFallback');
+    if (iframe) {
+      iframe.addEventListener('error', () => bfb && bfb.classList.add('show'));
+      // 若 BV 号为空直接显示兜底
+      if (!song.bilibiliBV) bfb && bfb.classList.add('show');
+    }
+  }
+
+  // 渲染歌词 HTML：高亮批注单词，支持中英对照/纯英文
+  function renderLyricsHtml(song, enLines, zhLines) {
+    const annos = song.annotations || [];
+    // 构建一个 word -> anno 的映射表（按词长度降序，避免短词先匹配）
+    const annoMap = {};
+    annos.forEach(a => { if (a.word) annoMap[a.word.toLowerCase()] = a; });
+    const words = Object.keys(annoMap).sort((a, b) => b.length - a.length);
+
+    let html = '';
+    enLines.forEach((line, idx) => {
+      if (!line.trim()) { html += '<div class="lyrics-line">&nbsp;</div>'; return; }
+      // 对当前行进行单词高亮处理（大小写不敏感）
+      let processed = escapeHtml(line);
+      words.forEach(w => {
+        const re = new RegExp(escapeRegExp(w), 'gi');
+        processed = processed.replace(re, (m) => {
+          const a = annoMap[w];
+                  return `<span class="hl ${a.level || 'basic'}" onclick="showAnno('${a.id}', event)">${m}</span>`;
+        });
+      });
+      const zh = lyricsMode === 'bilingual' ? (zhLines[idx] || '') : '';
+      html += `<div class="lyrics-line">${processed}${zh ? `<span class="zh">${escapeHtml(zh)}</span>` : ''}</div>`;
+    });
+    return html;
+  }
+
+  // 切换歌词显示模式
+  function setLyricsMode(mode) {
+    lyricsMode = mode;
+    render();
+  }
+  // 复制歌词到剪贴板
+  function copyLyrics() {
+    const song = loadSongs().find(s => s.id === currentSongId);
+    if (!song) return;
+    const text = (song.lyrics || '') + (song.lyricsZh ? '\n\n—— 中文翻译 ——\n' + song.lyricsZh : '');
+    navigator.clipboard.writeText(text).then(() => {
+      toast('歌词已复制到剪贴板', 'success');
+    }).catch(() => {
+      toast('复制失败，请手动选择文本', 'error');
+    });
+  }
+
+  // 显示批注弹窗
+  function showAnno(annoId, evt) {
+    const song = loadSongs().find(s => s.id === currentSongId);
+    if (!song) return;
+    const a = (song.annotations || []).find(x => x.id === annoId);
+    if (!a) return;
+    document.getElementById('annoWord').textContent = a.word || '';
+    document.getElementById('annoPhon').textContent = a.phonetic || '';
+    const body = document.getElementById('annoBody');
+    let rows = '';
+    if (a.meaning) rows += `<div class="row"><div class="k">释义</div><div class="v">${escapeHtml(a.meaning)}</div></div>`;
+    if (a.grammar) rows += `<div class="row"><div class="k">语法</div><div class="v">${escapeHtml(a.grammar)}</div></div>`;
+    if (a.collocation) rows += `<div class="row"><div class="k">搭配</div><div class="v">${escapeHtml(a.collocation)}</div></div>`;
+    if (a.example) rows += `<div class="row"><div class="k">例句</div><div class="v">${escapeHtml(a.example)}</div></div>`;
+    body.innerHTML = rows;
+
+    // 定位弹窗：优先使用事件的坐标，其次使用触发元素的边界
+    const pop = document.getElementById('annoPop');
+    pop.classList.add('show');
+    let x = 100, y = 100;
+    const e = evt || window.event;
+    if (e && e.clientX !== undefined && e.clientY !== undefined) {
+      x = e.clientX; y = e.clientY;
+    } else {
+      // 尝试找到带有该 onclick 的元素并使用其位置
+      const el = document.querySelector(`.hl[onclick*="${annoId}"]`);
+      if (el && el.getBoundingClientRect) {
+        const r = el.getBoundingClientRect();
+        x = r.left + r.width / 2; y = r.top + r.height;
+      }
+    }
+
+    // 防止超出右边/下边
+    const pw = pop.offsetWidth || 280, ph = pop.offsetHeight || 150;
+    if (x + pw > window.innerWidth - 10) x = window.innerWidth - pw - 10;
+    if (y + ph > window.innerHeight - 10) y = window.innerHeight - ph - 10;
+    pop.style.left = (x + 8) + 'px';
+    pop.style.top = (y + 8) + 'px';
+  }
+  function hideAnnoPop() {
+    document.getElementById('annoPop').classList.remove('show');
+  }
+  // 点击页面空白处关闭弹窗
+  document.addEventListener('click', e => {
+    const pop = document.getElementById('annoPop');
+    if (!pop.classList.contains('show')) return;
+    if (e.target.closest('.hl') || e.target.closest('.anno-pop')) return;
+    hideAnnoPop();
+  });
+
+  function goHome() {
+    currentView = 'home';
+    render();
+  }
+
+  /* ============================================================
+   * 第七部分：Supabase 留言板逻辑
+   *   表结构（在 Supabase 后台执行 SQL 建表，见文末教程）：
+   *     messages(
+   *       id uuid primary key default gen_random_uuid(),
+   *       song_id text not null,           -- 歌曲ID，用于隔离
+   *       nickname text not null,          -- 昵称
+   *       content text not null,           -- 留言内容
+   *       created_at timestamptz default now()
+   *     )
+   * ============================================================ */
+
+  /* ---------- Supabase 常见错误码解析（用户可看懂的中文提示） ---------- */
+  function parseSupabaseError(err) {
+    const code = err && err.code;
+    const msg = (err && err.message) || '未知错误';
+    // PGRST 系列是 PostgREST 返回码（Supabase REST API 底层）
+    switch (code) {
+      case 'PGRST205':
+      case '42P01':  // PostgreSQL: relation does not exist
+        return { level: 'critical', title: '⚠️ messages 表不存在',
+          hint: '请在 Supabase 后台 → SQL Editor 执行文末教程「二」里的建表 SQL（包括 RLS 策略）' };
+      case 'PGRST301':
+      case 'PGRST401':
+      case '42501':  // PostgreSQL: permission denied
+        return { level: 'critical', title: '🔐 权限不足（RLS 策略缺失）',
+          hint: '请在 SQL Editor 执行：alter table messages enable row level security; create policy "任何人可读留言" on messages for select using (true); create policy "任何人可发布留言" on messages for insert with check (true);（删除留言请进入 Supabase 后台 → Table Editor 手动处理，或在 SQL Editor 执行 drop policy if exists "任何人可删除留言" on messages;）' };
+      case 'PGRST116':
+        return { level: 'warning', title: '列不存在或类型不匹配',
+          hint: '请确认 messages 表含有列：id(uuid) / song_id(text) / nickname(text) / content(text) / created_at(timestamptz)' };
+      case '23514':  // PostgreSQL: check constraint violation
+        return { level: 'warning', title: '字段校验失败',
+          hint: '昵称或内容可能为空或超长' };
+      case '22P02':  // invalid uuid
+        return { level: 'warning', title: 'ID 格式错误',
+          hint: '请删除旧数据重试，或确保 id 使用 UUID 类型' };
+    }
+    // RPC / 存储过程错误
+    if (code === 'P0001' || msg.includes('password') || msg.includes('管理员')) {
+      return { level: 'critical', title: '🔐 管理员密码校验失败',
+        hint: '请确保代码中的 ADMIN_PASSWORD 与 Supabase 存储过程 delete_message_admin 里的密码完全一致（见文末教程）' };
+    }
+    if (msg.includes('function') && msg.includes('does not exist')) {
+      return { level: 'critical', title: '🧩 RPC 函数 delete_message_admin 不存在',
+        hint: '请在 Supabase SQL Editor 执行文末教程「二」里新增的 SECURITY DEFINER 函数 SQL 段' };
+    }
+    if (msg.includes('execute') && msg.includes('permission')) {
+      return { level: 'critical', title: '🔐 RPC 执行权限不足',
+        hint: '请执行 SQL: grant execute on function delete_message_admin(uuid, text) to anon, authenticated;' };
+    }
+    // 网络层错误
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+      return { level: 'critical', title: '🌐 网络连接失败',
+        hint: '请检查网络，确认已用 Live Server（http://）而不是 file:// 打开页面' };
+    }
+    if (msg.includes('JWT') || msg.includes('token') || msg.includes('401') || msg.includes('invalid') && msg.toLowerCase().includes('key')) {
+      return { level: 'critical', title: '🔑 Anon Key 无效',
+        hint: '请检查代码顶部 SUPABASE_ANON_KEY 是否正确复制，或 Supabase 后台 → Project Settings → API 重新生成 anon key' };
+    }
+    return { level: 'error', title: '❌ ' + msg, hint: '' };
+  }
+  function formatSupabaseErrorHtml(err) {
+    const info = parseSupabaseError(err);
+    const color = info.level === 'warning' ? '#d97706' : 'var(--danger)';
+    return `
+      <div class="msg-empty" style="color:${color}">
+        ${escapeHtml(info.title)}<br/>
+        ${info.hint ? `<span style="font-size:12px;display:block;margin-top:4px">${escapeHtml(info.hint)}</span>` : ''}
+      </div>`;
+  }
+
+  /* ---------- 表可用性探测（加载失败时自动检测是否表不存在） ---------- */
+  async function probeMessagesTable(client) {
+    try {
+      const { error } = await client.from('messages').select('id', { count: 'exact', head: true }).limit(1);
+      if (!error) return { ok: true };
+      return { ok: false, error };
+    } catch (e) { return { ok: false, error: e }; }
+  }
+
+  // 加载某首歌的全部留言（按时间倒序）
+  async function loadMessages(songId) {
+    const listEl = document.getElementById('msgList');
+    if (!listEl) return;
+
+    const client = initSupabase();
+    if (!client) {
+      listEl.innerHTML = `
+        <div class="msg-empty">
+          💡 留言板需配置 Supabase 密钥才能启用<br/>
+          <span style="font-size:12px">请见文末教程，将 SUPABASE_URL 与 SUPABASE_ANON_KEY 填入代码顶部</span>
+        </div>`;
+      return;
+    }
+
+    listEl.innerHTML = '<div class="msg-loading">留言加载中...</div>';
+    try {
+      const { data, error } = await client
+        .from('messages')
+        .select('id, nickname, content, created_at')
+        .eq('song_id', songId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      renderMessages(data || []);
+    } catch (e) {
+      console.error('loadMessages 错误：', e);
+      // 额外探测：区分表不存在 vs 其他错误
+      const probe = await probeMessagesTable(client);
+      let errToUse = e;
+      if (!probe.ok && (probe.error && (probe.error.code === 'PGRST205' || probe.error.code === '42P01' || probe.error.code === 'PGRST301'))) {
+        errToUse = probe.error;
+      }
+      listEl.innerHTML = formatSupabaseErrorHtml(errToUse);
+    }
+  }
+
+  // 渲染留言列表
+  function renderMessages(messages) {
+    const listEl = document.getElementById('msgList');
+    if (!listEl) return;
+    if (messages.length === 0) {
+      listEl.innerHTML = '<div class="msg-empty">还没有留言，快来抢沙发吧 🌟</div>';
+      return;
+    }
+    listEl.innerHTML = messages.map(m => `
+      <div class="msg-item">
+        <div class="head">
+          <span class="nick">${escapeHtml(m.nickname)}</span>
+          <span class="time">${formatTime(m.created_at)}</span>
+          ${isAdmin ? `<button class="del" onclick="deleteMessage('${m.id}')">删除</button>` : ''}
+        </div>
+        <div class="body">${escapeHtml(m.content)}</div>
+      </div>
+    `).join('');
+  }
+
+  // 提交留言（匿名，无需登录）
+  async function submitMessage() {
+    const nickEl = document.getElementById('msgNick');
+    const contentEl = document.getElementById('msgContent');
+    if (!nickEl || !contentEl) return;
+    const nickname = nickEl.value.trim();
+    const content = contentEl.value.trim();
+    if (nickname.length < 2) { toast('请输入至少2个字的昵称', 'error'); return; }
+    if (!content) { toast('留言内容不能为空', 'error'); return; }
+    if (content.length > 500) { toast('留言不能超过500字', 'error'); return; }
+
+    const client = initSupabase();
+    if (!client) { toast('Supabase 未配置，无法提交', 'error'); return; }
+
+    toast('正在发布留言...', '');
+    try {
+      // 写入前预检：探测表是否可访问
+      const probe = await probeMessagesTable(client);
+      if (!probe.ok) throw probe.error;
+
+      const { error } = await client.from('messages').insert([
+        { song_id: currentSongId, nickname, content }
+      ]);
+      if (error) throw error;
+      contentEl.value = '';
+      await loadMessages(currentSongId);
+      toast('留言发布成功 🎉', 'success');
+    } catch (e) {
+      console.error('submitMessage 错误：', e);
+      const info = parseSupabaseError(e);
+      toast('提交失败：' + info.title, 'error');
+      if (info.hint) toast('提示：' + info.hint, 'error');
+    }
+  }
+
+  // 删除留言（仅管理员）——服务端密码校验，调用 SECURITY DEFINER RPC
+  async function deleteMessage(msgId) {
+    if (!isAdmin) { toast('无权限', 'error'); return; }
+    if (!confirm('确认删除这条留言？')) return;
+    const client = initSupabase();
+    if (!client) { toast('Supabase 未配置', 'error'); return; }
+    try {
+      // 注意：不使用 .from().delete() 直接删除（已被 RLS 禁止），
+      // 改走 PostgreSQL 存储过程 delete_message_admin，在服务端校验密码
+      const { data, error } = await client.rpc('delete_message_admin', {
+        message_id: msgId,
+        pwd: ADMIN_PASSWORD
+      });
+      if (error) throw error;
+      if (data === null || data === 0) {
+        throw new Error('RPC_NO_DELETE');
+      }
+      await loadMessages(currentSongId);
+      toast('已删除', 'success');
+    } catch (e) {
+      console.error('deleteMessage 错误：', e);
+      if (e && (e.message === 'RPC_NO_DELETE' || (e.code && e.code === 'P0001'))) {
+        toast('删除失败：管理员密码不匹配，请检查 SQL 函数密码与代码 ADMIN_PASSWORD 是否一致', 'error');
+      } else {
+        const info = parseSupabaseError(e);
+        toast('删除失败：' + info.title, 'error');
+      }
+    }
+  }
+
+  /* ============================================================
+   * 第八部分：管理员后台 · 标签页式布局
+   * ============================================================ */
+  let adminTab = 'songs'; // songs(歌曲管理) | add(新增歌曲) | anno(批注编辑) | msg(留言管理) | backup(备份) | cats(分类管理)
+
+  function renderAdmin(app) {
+    if (!isAdmin) { promptAdminLogin(); return; }
+    app.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <h2 style="font-size:20px">🛠️ 管理员后台</h2>
+        <button class="btn btn-ghost btn-sm" onclick="logoutAdmin()">退出登录</button>
+      </div>
+      <div class="admin-tabs">
+        <button class="${adminTab === 'songs' ? 'active' : ''}" onclick="setAdminTab('songs')">🎵 歌曲管理</button>
+        <button class="${adminTab === 'add' ? 'active' : ''}" onclick="setAdminTab('add')">➕ 新增歌曲</button>
+        <button class="${adminTab === 'cats' ? 'active' : ''}" onclick="setAdminTab('cats')">📚 分类管理</button>
+        <button class="${adminTab === 'anno' ? 'active' : ''}" onclick="setAdminTab('anno')">📝 批注编辑</button>
+        <button class="${adminTab === 'msg' ? 'active' : ''}" onclick="setAdminTab('msg')">💬 留言管理</button>
+        <button class="${adminTab === 'backup' ? 'active' : ''}" onclick="setAdminTab('backup')">💾 JSON 备份</button>
+      </div>
+      <div class="admin-panel" id="adminPanel"></div>
+    `;
+    renderAdminPanel();
+  }
+  function setAdminTab(tab) {
+    adminTab = tab;
+    render();
+  }
+
+  function renderAdminPanel() {
+    const panel = document.getElementById('adminPanel');
+    if (!panel) return;
+    if (adminTab === 'songs')      renderAdminSongs(panel);
+    else if (adminTab === 'add')   renderAdminAdd(panel);
+    else if (adminTab === 'cats')  renderAdminCats(panel);
+    else if (adminTab === 'anno')  renderAdminAnno(panel);
+    else if (adminTab === 'msg')   renderAdminMsg(panel);
+    else if (adminTab === 'backup')renderAdminBackup(panel);
+  }
+
+  // ----- 分类管理：增 / 重命名 / 删 / 上下移排序 -----
+  function renderAdminCats(panel) {
+    const cats = loadCategories();
+    const songs = loadSongs();
+    const counts = computeCategoryCounts(songs);
+
+    // 行渲染：虚拟分类单独显示为禁用灰底说明，用户分类可编辑
+    const vcatRows = [
+      { name: VCAT_ALL, desc: '所有歌曲的集合，不可修改/删除' },
+      { name: VCAT_UNCATEGORIZED, desc: '未填分类的歌曲会自动归类至此' }
+    ].map(it => `
+      <div class="admin-list-item" style="background:#f9fafb;opacity:.85">
+        <div class="info">
+          <div class="t" style="font-weight:600">${escapeHtml(it.name)}
+            <span class="tag" style="margin-left:8px">系统内置</span>
+            <span class="count-badge">${counts[it.name] || 0} 首</span>
+          </div>
+          <div class="s" style="color:var(--text-soft);font-size:12px">${escapeHtml(it.desc)}</div>
+        </div>
+      </div>
+    `).join('');
+
+    const rows = cats.map((c, i) => `
+      <div class="admin-list-item">
+        <div class="info">
+          <div class="t" style="font-weight:600">
+            <span style="color:var(--text-soft);margin-right:6px">#${i + 1}</span>
+            ${escapeHtml(c)}
+            <span class="count-badge" style="margin-left:8px">${counts[c] || 0} 首</span>
+          </div>
+        </div>
+        <div class="ops" style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" ${i === 0 ? 'disabled style="opacity:.5;pointer-events:none"' : ''}
+            onclick="moveCategory('${escapeAttr(c)}', -1);setAdminTab('cats');render()">↑ 上移</button>
+          <button class="btn btn-ghost btn-sm" ${i === cats.length - 1 ? 'disabled style="opacity:.5;pointer-events:none"' : ''}
+            onclick="moveCategory('${escapeAttr(c)}', 1);setAdminTab('cats');render()">↓ 下移</button>
+          <button class="btn btn-ghost btn-sm" onclick="promptRenameCategory('${escapeAttr(c)}')">✏️ 重命名</button>
+          <button class="btn btn-danger btn-sm" onclick="promptDeleteCategory('${escapeAttr(c)}')">🗑️ 删除</button>
+        </div>
+      </div>
+    `).join('');
+
+    panel.innerHTML = `
+      <h2>📚 分类管理（共 ${cats.length} 个用户分类）</h2>
+
+      <div class="admin-list" style="gap:8px;margin-bottom:20px">
+        ${vcatRows}
+      </div>
+
+      <div class="admin-list" style="gap:8px">
+        ${rows || '<div class="msg-empty">暂无自定义分类</div>'}
+      </div>
+
+      <div class="add-cat-box" style="margin-top:18px;padding:14px;border:1px dashed var(--border);border-radius:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input id="newCatInput" style="flex:1;min-width:180px" placeholder="输入新分类名，如：欧美女歌手、华语流行..." maxlength="20" />
+          <button class="btn btn-primary" onclick="promptAddCategory()">➕ 添加分类</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-soft);margin-top:8px">
+          提示：保存歌曲时填入的新分类也会自动出现在这里；重命名会同步更新所有该分类歌曲；删除会把对应歌曲移动到「未分类」
+        </div>
+      </div>
+    `;
+  }
+  function promptAddCategory() {
+    const inp = document.getElementById('newCatInput');
+    const name = inp ? inp.value.trim() : prompt('请输入新分类名称：');
+    if (!name) return;
+    if (addCategory(name)) { toast('分类已添加', 'success'); render(); }
+  }
+  function promptRenameCategory(oldName) {
+    const newName = prompt(`请把「${oldName}」重命名为：`, oldName);
+    if (newName === null) return;
+    if (renameCategory(oldName, newName)) render();
+  }
+  function promptDeleteCategory(name) {
+    const count = (computeCategoryCounts(loadSongs())[name]) || 0;
+    const msg = count > 0
+      ? `确定删除分类「${name}」？\n该分类下 ${count} 首歌曲会自动移动到「未分类」。`
+      : `确定删除分类「${name}」？`;
+    if (!confirm(msg)) return;
+    if (deleteCategory(name)) render();
+  }
+
+  // ----- 歌曲管理列表 -----
+  function renderAdminSongs(panel) {
+    const list = loadSongs();
+    panel.innerHTML = `
+      <h2>歌曲管理（共 ${list.length} 首）</h2>
+      ${list.length === 0 ? '<div class="msg-empty">暂无歌曲</div>' : `
+        <div class="admin-list">
+          ${list.map(s => `
+            <div class="admin-list-item">
+              <div class="info">
+                <div class="t">${escapeHtml(s.title)}</div>
+                <div class="s">${escapeHtml(s.artist)} · ${escapeHtml(s.category || '')} · ${(s.annotations||[]).length} 词批注</div>
+              </div>
+              <div class="ops">
+                <button class="btn btn-ghost btn-sm" onclick="editSong('${s.id}')">编辑</button>
+                <button class="btn btn-ghost btn-sm" onclick="goLearn('${s.id}')">查看</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteSong('${s.id}')">删除</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+    `;
+  }
+
+  // ----- 新增 / 编辑歌曲表单 -----
+  function renderAdminAdd(panel, editId) {
+    const song = editId ? loadSongs().find(s => s.id === editId) : null;
+    panel.innerHTML = `
+      <h2>${song ? '编辑歌曲' : '新增歌曲'}</h2>
+      <div class="form-grid">
+        <div class="full">
+          <label>歌名 *</label>
+          <input id="f_title" value="${song ? escapeAttr(song.title) : ''}" placeholder="如：Yesterday Once More" />
+        </div>
+        <div>
+          <label>歌手 *</label>
+          <input id="f_artist" value="${song ? escapeAttr(song.artist) : ''}" placeholder="如：Carpenters" />
+        </div>
+        <div>
+          <label>分类</label>
+          <select id="f_category_sel" onchange="onCategorySelectChange()">
+            <option value="">-- 选择已有分类 --</option>
+            ${loadCategories().map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('')}
+            <option value="__custom__">✏️ 自定义其他分类...</option>
+          </select>
+          <input id="f_category_text" value="${song ? escapeAttr(song.category || '') : ''}"
+                 placeholder="分类名称" style="margin-top:6px" />
+          <div class="hint">先从下拉选；或选「自定义其他分类」后在下方文本框直接输入</div>
+        </div>
+        <div class="full">
+          <label>B 站视频 BV 号</label>
+          <input id="f_bilibiliBV" value="${song ? escapeAttr(song.bilibiliBV || '') : ''}" placeholder="如：BV1Gp4y1W7qg" />
+          <div class="hint">B站视频 URL 中 /video/ 后面的 BV 字符串（打开视频页看地址栏）</div>
+        </div>
+        <div class="full">
+          <label>英文歌词（每行一句）</label>
+          <textarea id="f_lyrics" style="min-height:160px" placeholder="When I was young&#10;I'd listen to the radio&#10;...">${song ? escapeHtml(song.lyrics || '') : ''}</textarea>
+        </div>
+        <div class="full">
+          <label>中文翻译（每行一句，与英文行对应）</label>
+          <textarea id="f_lyricsZh" style="min-height:120px" placeholder="当我年轻时&#10;我会听收音机&#10;...">${song ? escapeHtml(song.lyricsZh || '') : ''}</textarea>
+        </div>
+      </div>
+      <div class="actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button class="btn btn-ghost" onclick="setAdminTab('songs')">取消</button>
+        <button class="btn btn-primary" onclick="saveSong('${song ? song.id : ''}')">💾 保存</button>
+      </div>
+    `;
+    // 渲染后根据歌曲已有分类，同步下拉框选中状态
+    setTimeout(() => {
+      const sel = document.getElementById('f_category_sel');
+      const txt = document.getElementById('f_category_text');
+      if (!sel || !txt) return;
+      const cur = (song ? song.category || '' : '').trim();
+      if (!cur) { sel.value = ''; txt.value = ''; txt.style.display = 'none'; return; }
+      // 若当前分类存在于下拉中：选中该下拉项并隐藏文本框
+      if (loadCategories().includes(cur)) { sel.value = cur; txt.style.display = 'none'; }
+      else { sel.value = '__custom__'; txt.style.display = ''; }
+    }, 0);
+  }
+  // 分类下拉切换：选「自定义」显示文本框，否则隐藏文本框并把值写进去
+  function onCategorySelectChange() {
+    const sel = document.getElementById('f_category_sel');
+    const txt = document.getElementById('f_category_text');
+    if (!sel || !txt) return;
+    if (sel.value === '__custom__') { txt.style.display = ''; txt.focus(); }
+    else if (sel.value === '') { txt.style.display = 'none'; txt.value = ''; }
+    else { txt.style.display = 'none'; txt.value = sel.value; }
+  }
+
+  // 保存歌曲（新增或更新）
+  function saveSong(id) {
+    const title = document.getElementById('f_title').value.trim();
+    const artist = document.getElementById('f_artist').value.trim();
+    if (!title || !artist) { toast('歌名和歌手必填', 'error'); return; }
+    // 分类：优先使用文本框（用户手动填写的真实值），并在需要时自动加入分类列表
+    let category = (document.getElementById('f_category_text') || {}).value || '';
+    category = category.trim();
+    // 若用户填的新分类不在列表中，自动追加
+    if (category && !isVirtualCategory(category)) {
+      const cats = loadCategories();
+      if (!cats.includes(category)) {
+        cats.push(category);
+        saveCategories(cats);
+      }
+    }
+    const data = {
+      title,
+      artist,
+      category,
+      bilibiliBV: document.getElementById('f_bilibiliBV').value.trim(),
+      lyrics: document.getElementById('f_lyrics').value,
+      lyricsZh: document.getElementById('f_lyricsZh').value,
+    };
+    const list = loadSongs();
+    if (id) {
+      // 更新
+      const idx = list.findIndex(s => s.id === id);
+      if (idx >= 0) {
+        list[idx] = Object.assign({}, list[idx], data);
+        saveSongs(list);
+        toast('歌曲已更新', 'success');
+      }
+    } else {
+      // 新增
+      data.id = uid();
+      data.annotations = [];
+      list.push(data);
+      saveSongs(list);
+      toast('歌曲已添加', 'success');
+    }
+    adminTab = 'songs';
+    render();
+  }
+
+  // 编辑歌曲（跳转到 add 标签并预填）
+  function editSong(id) {
+    adminTab = 'add';
+    render();
+    setTimeout(() => {
+      const panel = document.getElementById('adminPanel');
+      if (panel) renderAdminAdd(panel, id);
+    }, 0);
+  }
+
+  // 删除歌曲
+  function deleteSong(id) {
+    if (!confirm('确认删除这首歌？所有批注也会一并删除。')) return;
+    const list = loadSongs().filter(s => s.id !== id);
+    saveSongs(list);
+    toast('已删除', 'success');
+    render();
+  }
+
+  // ----- 批注编辑器 -----
+  let annoEditSongId = null; // 当前正在编辑批注的歌曲ID
+  function renderAdminAnno(panel) {
+    const list = loadSongs();
+    if (list.length === 0) {
+      panel.innerHTML = '<h2>批注编辑</h2><div class="msg-empty">请先添加歌曲</div>';
+      return;
+    }
+    // 默认选第一首
+    if (!annoEditSongId || !list.find(s => s.id === annoEditSongId)) {
+      annoEditSongId = list[0].id;
+    }
+    const song = list.find(s => s.id === annoEditSongId);
+
+    panel.innerHTML = `
+      <h2>批注编辑</h2>
+      <div class="form-row" style="margin-bottom:12px">
+        <label>选择歌曲</label>
+        <select id="annoSongSel" onchange="switchAnnoSong(this.value)">
+          ${list.map(s => `<option value="${s.id}" ${s.id === annoEditSongId ? 'selected' : ''}>${escapeHtml(s.title)} - ${escapeHtml(s.artist)}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="anno-editor">
+        <div>
+          <label style="font-size:13px;color:var(--text-soft);display:block;margin-bottom:4px">📖 歌词（点击「新增批注」按钮添加单词释义）</label>
+          <div class="lyrics-area" id="annoLyrics">${escapeHtml(song.lyrics || '(无歌词)')}</div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <label style="font-size:13px;color:var(--text-soft)">📌 批注列表（${(song.annotations||[]).length}）</label>
+            <button class="btn btn-primary btn-sm" onclick="addAnno()">+ 新增批注</button>
+          </div>
+          <div class="anno-list" id="annoList">
+            ${(song.annotations||[]).map(a => `
+              <div class="anno-card">
+                <div class="w">${escapeHtml(a.word)} <span style="font-size:11px;color:var(--text-soft)">${a.level === 'advanced' ? '高级' : '基础'}</span></div>
+                <div style="margin-top:4px;color:var(--text-soft);font-size:12px">${escapeHtml(a.meaning || '')}</div>
+                <div class="ops">
+                  <button class="btn btn-ghost btn-sm" onclick="editAnno('${a.id}')">编辑</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteAnno('${a.id}')">删除</button>
+                </div>
+              </div>
+            `).join('') || '<div class="msg-empty">暂无批注</div>'}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function switchAnnoSong(id) {
+    annoEditSongId = id;
+    renderAdminPanel();
+  }
+
+  // 新增/编辑批注弹窗
+  function addAnno() {
+    editAnno('');
+  }
+  function editAnno(annoId) {
+    const song = loadSongs().find(s => s.id === annoEditSongId);
+    const a = annoId ? (song.annotations || []).find(x => x.id === annoId) : {};
+    openModal(`
+      <h3>${annoId ? '编辑批注' : '新增批注'}</h3>
+      <div class="form-row">
+        <label>单词 / 短语 *</label>
+        <input id="a_word" value="${a.word ? escapeAttr(a.word) : ''}" placeholder="如：listen to" />
+      </div>
+      <div class="form-row">
+        <label>音标</label>
+        <input id="a_phonetic" value="${a.phonetic ? escapeAttr(a.phonetic) : ''}" placeholder="如：/ˈlɪsən tu/" />
+      </div>
+      <div class="form-row">
+        <label>释义</label>
+        <input id="a_meaning" value="${a.meaning ? escapeAttr(a.meaning) : ''}" placeholder="如：听；倾听" />
+      </div>
+      <div class="form-row">
+        <label>语法</label>
+        <input id="a_grammar" value="${a.grammar ? escapeAttr(a.grammar) : ''}" placeholder="如：动词短语，后接名词" />
+      </div>
+      <div class="form-row">
+        <label>搭配</label>
+        <input id="a_collocation" value="${a.collocation ? escapeAttr(a.collocation) : ''}" placeholder="如：listen to music" />
+      </div>
+      <div class="form-row">
+        <label>例句</label>
+        <textarea id="a_example" placeholder="I like to listen to music.">${a.example ? escapeHtml(a.example) : ''}</textarea>
+      </div>
+      <div class="form-row">
+        <label>级别</label>
+        <select id="a_level">
+          <option value="basic" ${(!a.level || a.level === 'basic') ? 'selected' : ''}>基础词（蓝色）</option>
+          <option value="advanced" ${a.level === 'advanced' ? 'selected' : ''}>高级语法词（粉红）</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveAnno('${annoId}')">保存</button>
+      </div>
+    `);
+  }
+
+  function saveAnno(annoId) {
+    const data = {
+      word: document.getElementById('a_word').value.trim(),
+      phonetic: document.getElementById('a_phonetic').value.trim(),
+      meaning: document.getElementById('a_meaning').value.trim(),
+      grammar: document.getElementById('a_grammar').value.trim(),
+      collocation: document.getElementById('a_collocation').value.trim(),
+      example: document.getElementById('a_example').value.trim(),
+      level: document.getElementById('a_level').value,
+    };
+    if (!data.word) { toast('单词不能为空', 'error'); return; }
+    const list = loadSongs();
+    const idx = list.findIndex(s => s.id === annoEditSongId);
+    if (idx < 0) return;
+    if (!list[idx].annotations) list[idx].annotations = [];
+    if (annoId) {
+      const ai = list[idx].annotations.findIndex(x => x.id === annoId);
+      if (ai >= 0) list[idx].annotations[ai] = Object.assign({ id: annoId }, data);
+    } else {
+      list[idx].annotations.push(Object.assign({ id: uid() }, data));
+    }
+    saveSongs(list);
+    closeModal();
+    toast('批注已保存', 'success');
+    renderAdminPanel();
+  }
+
+  function deleteAnno(annoId) {
+    if (!confirm('确认删除这条批注？')) return;
+    const list = loadSongs();
+    const idx = list.findIndex(s => s.id === annoEditSongId);
+    if (idx < 0) return;
+    list[idx].annotations = (list[idx].annotations || []).filter(a => a.id !== annoId);
+    saveSongs(list);
+    toast('已删除', 'success');
+    renderAdminPanel();
+  }
+
+  // ----- 留言管理（列出全部歌曲的留言） -----
+  async function renderAdminMsg(panel) {
+    panel.innerHTML = `
+      <h2>留言管理</h2>
+      <div class="msg-mgmt-list" id="msgMgmtList">
+        <div class="msg-loading">加载全部留言中...</div>
+      </div>
+    `;
+    const client = initSupabase();
+    const wrap = document.getElementById('msgMgmtList');
+    if (!client) {
+      wrap.innerHTML = '<div class="msg-empty">Supabase 未配置，无法加载留言</div>';
+      return;
+    }
+    try {
+      // 拉取全部留言（按时间倒序），最多500条
+      const { data, error } = await client
+        .from('messages')
+        .select('id, song_id, nickname, content, created_at')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      const songs = loadSongs();
+      const songMap = {};
+      songs.forEach(s => songMap[s.id] = s);
+      // 按歌曲分组
+      const groups = {};
+      (data || []).forEach(m => {
+        const k = m.song_id || 'unknown';
+        if (!groups[k]) groups[k] = [];
+        groups[k].push(m);
+      });
+      wrap.innerHTML = Object.keys(groups).map(sid => {
+        const s = songMap[sid];
+        const title = s ? `${escapeHtml(s.title)} - ${escapeHtml(s.artist)}` : '未知歌曲';
+        return `
+          <div class="msg-mgmt-group">
+            <div class="gtitle">🎵 ${title} <span style="font-size:12px;color:var(--text-soft);font-weight:400">(${groups[sid].length} 条)</span></div>
+            <div class="msg-list">
+              ${groups[sid].map(m => `
+                <div class="msg-item">
+                  <div class="head">
+                    <span class="nick">${escapeHtml(m.nickname)}</span>
+                    <span class="time">${formatTime(m.created_at)}</span>
+                    <button class="del" onclick="deleteMessageAdmin('${m.id}', '${sid}')">删除</button>
+                  </div>
+                  <div class="body">${escapeHtml(m.content)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }).join('') || '<div class="msg-empty">暂无留言</div>';
+    } catch (e) {
+      console.error('renderAdminMsg 错误：', e);
+      wrap.innerHTML = formatSupabaseErrorHtml(e);
+    }
+  }
+
+  // 后台删除留言（刷新整个留言管理列表）——服务端密码校验 RPC
+  async function deleteMessageAdmin(msgId, songId) {
+    if (!confirm('确认删除这条留言？')) return;
+    const client = initSupabase();
+    if (!client) { toast('Supabase 未配置', 'error'); return; }
+    try {
+      const { data, error } = await client.rpc('delete_message_admin', {
+        message_id: msgId,
+        pwd: ADMIN_PASSWORD
+      });
+      if (error) throw error;
+      if (data === null || data === 0) throw new Error('RPC_NO_DELETE');
+      toast('已删除', 'success');
+      renderAdminPanel();
+    } catch (e) {
+      console.error('deleteMessageAdmin 错误：', e);
+      if (e && (e.message === 'RPC_NO_DELETE' || (e.code && e.code === 'P0001'))) {
+        toast('删除失败：管理员密码不匹配，请检查 SQL 函数密码', 'error');
+      } else {
+        const info = parseSupabaseError(e);
+        toast('删除失败：' + info.title, 'error');
+      }
+    }
+  }
+
+  // ----- JSON 备份导入导出 -----
+  function renderAdminBackup(panel) {
+    const json = JSON.stringify(loadSongs(), null, 2);
+    panel.innerHTML = `
+      <h2>JSON 备份 / 导入</h2>
+      <div class="backup-box">
+        <div class="row">
+          <div class="desc">导出全部歌曲数据为 JSON 文件，方便备份或迁移</div>
+          <button class="btn btn-primary" onclick="exportJson()">⬇ 导出 JSON</button>
+        </div>
+        <div class="row">
+          <div class="desc">导入 JSON 文件（会与现有数据合并，相同 ID 的歌曲将被覆盖）</div>
+          <input type="file" id="importFile" accept=".json" style="max-width:260px" />
+          <button class="btn btn-success" onclick="importJson()">⬆ 导入</button>
+        </div>
+        <div class="row" style="flex-direction:column;align-items:stretch">
+          <div class="desc">当前数据预览（可直接编辑后导入）</div>
+          <textarea id="jsonPreview" style="min-height:200px;font-family:monospace;font-size:12px">${escapeHtml(json)}</textarea>
+          <button class="btn btn-primary" onclick="applyJsonPreview()" style="align-self:flex-start;margin-top:8px">💾 应用文本框内容</button>
+        </div>
+
+        <!-- ★ 同步给所有访问者：生成 SHARED_SONGS / SHARED_CATEGORIES 代码片段 ★ -->
+        <div class="row" style="flex-direction:column;align-items:stretch;margin-top:24px;padding-top:16px;border-top:1px dashed var(--border)">
+          <div style="font-weight:600;margin-bottom:6px">🌐 同步给所有访问者（部署到 GitHub 用）</div>
+          <div class="desc" style="margin-bottom:10px">
+            点击下方按钮 → 自动生成两段 JavaScript 代码 → 复制后粘贴到 index.html 顶部的
+            <code style="background:#f3f4f6;padding:1px 6px;border-radius:4px">SHARED_SONGS</code> 和
+            <code style="background:#f3f4f6;padding:1px 6px;border-radius:4px">SHARED_CATEGORIES</code>
+            两个数组里 → 重新上传 index.html 到 GitHub → 所有访问者首次打开都会自动初始化这些歌曲和分类。
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <button class="btn btn-primary" onclick="generateSharedCode()">📋 生成共享代码</button>
+            <button class="btn btn-success" onclick="copySharedCode()">📋 一键复制全部</button>
+          </div>
+          <textarea id="sharedCodePreview" style="min-height:220px;font-family:monospace;font-size:12px;background:#fafafa" placeholder="点上方「生成共享代码」按钮，这里会显示可粘贴到 index.html 的代码..." readonly></textarea>
+        </div>
+      </div>
+    `;
+  }
+
+  // 生成 SHARED_SONGS + SHARED_CATEGORIES 的 JS 代码片段
+  function generateSharedCode() {
+    const songs = loadSongs();
+    const cats = loadCategories();
+    // 用 JSON.stringify 输出紧凑但可读的代码（缩进 2 空格）
+    const songsCode = JSON.stringify(songs, null, 2);
+    const catsCode = JSON.stringify(cats, null, 2);
+    const snippet =
+`// ===== 粘贴到 index.html 顶部对应的常量里 =====
+// 1. 替换 SHARED_SONGS = [...] 这一行（注意末尾不要漏掉分号）
+const SHARED_SONGS = ${songsCode};
+
+// 2. 替换 SHARED_CATEGORIES = [...] 这一行
+const SHARED_CATEGORIES = ${catsCode};
+// ===== 结束 =====`;
+    const ta = document.getElementById('sharedCodePreview');
+    if (ta) ta.value = snippet;
+    toast('已生成代码，点「一键复制全部」复制', 'success');
+  }
+  async function copySharedCode() {
+    const ta = document.getElementById('sharedCodePreview');
+    if (!ta || !ta.value) { toast('请先点「生成共享代码」', 'error'); return; }
+    try {
+      await navigator.clipboard.writeText(ta.value);
+      toast('已复制到剪贴板，请粘贴到 index.html 顶部', 'success');
+    } catch (e) {
+      // 兜底：选中文本框让用户手动 Ctrl+C
+      ta.select();
+      toast('请按 Ctrl+C 手动复制', '');
+    }
+  }
+
+  function exportJson() {
+    const data = JSON.stringify(loadSongs(), null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `songs-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('已导出 JSON 文件', 'success');
+  }
+
+  function importJson() {
+    const fileInput = document.getElementById('importFile');
+    if (!fileInput.files[0]) { toast('请先选择文件', 'error'); return; }
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const imported = JSON.parse(e.target.result);
+        if (!Array.isArray(imported)) throw new Error('JSON 必须是数组');
+        const list = loadSongs();
+        imported.forEach(ns => {
+          const idx = list.findIndex(s => s.id === ns.id);
+          if (idx >= 0) list[idx] = ns;
+          else list.push(ns);
+        });
+        saveSongs(list);
+        toast(`成功导入 ${imported.length} 首歌`, 'success');
+        render();
+      } catch (err) {
+        toast('导入失败：' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function applyJsonPreview() {
+    try {
+      const txt = document.getElementById('jsonPreview').value;
+      const data = JSON.parse(txt);
+      if (!Array.isArray(data)) throw new Error('JSON 必须是数组');
+      saveSongs(data);
+      toast('已应用', 'success');
+      render();
+    } catch (e) {
+      toast('JSON 格式错误：' + e.message, 'error');
+    }
+  }
+
+  /* ============================================================
+   * 第九部分：工具函数
+   * ============================================================ */
+  // HTML 转义，防 XSS
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+  // 属性值转义
+  function escapeAttr(s) {
+    return escapeHtml(s).replace(/`/g, '&#96;');
+  }
+  // 转义正则特殊字符
+  function escapeRegExp(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  // 格式化时间
+  function formatTime(t) {
+    if (!t) return '';
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  /* ============================================================
+   * 第十部分：初始化启动
+   * ============================================================ */
+  seedDemoIfEmpty();
+  render();
+
+  /* ============================================================
+   * ==================== 完整使用教程 ====================
+   *
+   * 一、VS Code 本地运行方法
+   *    1. 安装 VS Code，打开本 index.html 所在文件夹
+   *    2. 在扩展商店搜索并安装 "Live Server"（作者 Ritwick Dey）
+   *    3. 在 index.html 文件上 右键 → "Open with Live Server"
+   *    4. 浏览器自动打开 http://127.0.0.1:5500/index.html
+   *    5. 修改代码后页面会自动刷新
+   *    注意：必须用 http 协议（Live Server）打开，file:// 协议下
+   *          Supabase 等 CDN 功能可能受限。
+   *
+   * 二、Supabase 注册、建表、获取密钥（完整步骤）
+   *    1. 访问 https://supabase.com 注册账号（可用 GitHub 登录）
+   *    2. 点击 "New Project" 新建项目，填项目名、数据库密码、区域
+   *       （区域选离自己近的，如 Southeast Asia (Singapore)）
+   *    3. 等待 1-2 分钟项目初始化完成
+   *    4. 进入项目左侧菜单 → "SQL Editor" → "New query"
+   *       粘贴以下完整 SQL 并点击 "Run" 执行（包含建表、RLS 策略、
+   *       删除留言用的 SECURITY DEFINER 函数）：
+   *
+   *       ------- 开始复制 -------
+   *       -- 1) 建表
+   *       create table if not exists messages (
+   *         id uuid primary key default gen_random_uuid(),
+   *         song_id text not null,
+   *         nickname text not null,
+   *         content text not null,
+   *         created_at timestamptz default now()
+   *       );
+   *       -- 2) 索引
+   *       create index if not exists messages_song_created_idx
+   *         on messages(song_id, created_at desc);
+   *       -- 3) 行级安全：只允许匿名读 / 匿名写，匿名直接删被禁止
+   *       alter table messages enable row level security;
+   *       drop policy if exists "任何人可读留言" on messages;
+   *       drop policy if exists "任何人可发布留言" on messages;
+   *       drop policy if exists "任何人可删除留言" on messages;
+   *       create policy "任何人可读留言" on messages for select using (true);
+   *       create policy "任何人可发布留言" on messages for insert with check (true);
+   *       -- （故意不建 delete policy，所有匿名 .from().delete() 都会被数据库拒绝）
+   *
+   *       -- 4) 管理员删除用 SECURITY DEFINER 存储过程（服务端校验密码）
+   *       create or replace function delete_message_admin(
+   *         message_id uuid,
+   *         pwd        text
+   *       ) returns integer
+   *       language plpgsql
+   *       security definer     -- 以函数创建者（postgres）权限运行，绕过 RLS
+   *       as $$
+   *       declare
+   *         ADMIN_PWD constant text := 'admin';  -- ★ 与本文件 ADMIN_PASSWORD 保持一致
+   *         deleted_cnt integer;
+   *       begin
+   *         if pwd <> ADMIN_PWD then
+   *           raise exception '管理员密码错误' using errcode = 'P0001';
+   *         end if;
+   *         delete from messages where id = message_id;
+   *         get diagnostics deleted_cnt = row_count;
+   *         return deleted_cnt;
+   *       end;
+   *       $$;
+   *
+   *       -- 5) 允许匿名调用上面的存储过程
+   *       grant execute on function delete_message_admin(uuid, text)
+   *         to anon, authenticated;
+   *       ------- 结束复制 -------
+   *
+   *    5. 执行成功后，进入左侧菜单 → "Project Settings" → "API"
+   *       复制 "Project URL" 和 "anon public" key
+   *    6. 回到本文件顶部，找到两个变量：
+   *           const SUPABASE_URL = '在此粘贴你的 Supabase Project URL';
+   *           const SUPABASE_ANON_KEY = '在此粘贴你的 Supabase anon public key';
+   *       分别粘贴替换。保存后刷新页面即可使用留言板。
+   *
+   *    ★ 已执行过旧版 SQL 的同学，如果 messages 表已经存在，只需在
+   *      SQL Editor 再执行一次上面的第 4) 步函数 SQL 和第 3) 步的
+   *      drop policy if exists "任何人可删除留言" on messages; 即可。
+   *
+   * 三、后台密码修改
+   *    需要修改两处，保持一致：
+   *      ① 本文件顶部的  const ADMIN_PASSWORD = 'admin';
+   *      ② Supabase SQL Editor 中 delete_message_admin 函数里的
+   *         ADMIN_PWD constant text := 'admin';
+   *       （重新执行一次 create or replace function ... 那段 SQL 即可）
+   *    登录态保存在 sessionStorage，关闭浏览器标签后需重新登录。
+   *
+   * 四、JSON 备份
+   *    1. 后台 → "JSON 备份" 标签
+   *    2. 点击 "导出 JSON" 会下载 songs-backup-YYYY-MM-DD.json
+   *    3. 导入：选择 JSON 文件 → 点 "导入"，相同 ID 歌曲会被覆盖
+   *    4. 也可直接在文本框编辑 JSON 后点 "应用文本框内容"
+   *
+   * 五、B 站 BV 号获取方法
+   *    1. 打开 https://www.bilibili.com 搜索歌曲
+   *    2. 进入视频播放页，地址栏形如：
+   *         https://www.bilibili.com/video/BV1Gp4y1W7qg
+   *       其中 BV1Gp4y1W7qg 就是 BV 号
+   *    3. 填入后台歌曲表单的 "B 站视频 BV 号" 字段
+   *    4. 内嵌播放器已默认关闭弹幕（danmaku=0），界面小巧
+   *
+   * 六、功能总览
+   *    前台游客：
+   *      - 歌曲列表 + 搜索
+   *      - B站视频播放器（缩小版，关闭弹幕）
+   *      - 播放失败兜底跳转 B 站搜索
+   *      - 中英对照 / 纯英文歌词切换，一键复制
+   *      - 单词高亮 + 悬浮批注弹窗（音标/释义/语法/搭配/例句）
+   *      - 匿名留言（云端共享，按时间倒序）
+   *    管理员后台（默认密码 admin）：
+   *      - 歌曲管理：新增 / 编辑 / 删除
+   *      - 批注编辑：每首歌独立批注，基础词/高级词分级
+   *      - 留言管理：查看全部留言，可一键删除违规评论
+   *      - JSON 备份导入导出
+   *      - 📋 生成共享代码：一键把当前歌曲/分类导出为 JS 代码
+   *    数据存储：
+   *      - 歌曲数据 → 浏览器 localStorage（不丢失，不联网）
+   *      - 留言数据 → Supabase 云端数据库（跨设备共享）
+   *      - 音视频 → 直接调用 B 站官方接口，不存储文件
+   *
+   * ============================================================
+   * 七、如何把后台添加的歌曲同步给所有访问者（GitHub Pages 部署后用）
+   *    ------------------------------------------------------------
+   *    背景：歌曲数据存在浏览器 localStorage，是「按域名 + 浏览器」
+   *          隔离的。你在自己浏览器后台添加的歌曲，别人访问同一网址
+   *          也看不到。需要用「共享代码」机制把数据硬编码进 index.html。
+   *    ------------------------------------------------------------
+   *    操作步骤：
+   *    1. 在你已有完整歌曲数据的浏览器里打开网站（如 localhost 或 github.io）
+   *    2. 右下角 ⚙️ → 输入密码进后台 → 顶部切到「💾 JSON 备份」标签
+   *    3. 滚动到底部「🌐 同步给所有访问者」区域
+   *    4. 点「📋 生成共享代码」→ 文本框出现两段 JS 代码
+   *    5. 点「📋 一键复制全部」→ 复制到剪贴板
+   *    6. 用 VS Code 打开本地 index.html，找到顶部这两行：
+   *         const SHARED_SONGS = [];       // 大约在第 700 行
+   *         const SHARED_CATEGORIES = [];
+   *    7. 把复制的代码里的 SHARED_SONGS = [...] 整段替换掉 [...] 部分
+   *       把 SHARED_CATEGORIES = [...] 整段替换掉 [...] 部分
+   *       （只替换等号右边 [...]，保留 const 和分号）
+   *    8. 保存 index.html (Ctrl+S)
+   *    9. 重新上传 index.html 到 GitHub：
+   *       - 方法 A：GitHub 仓库页面 → 添加文件 → 上传文件 → 拖入新的 index.html
+   *       - 方法 B（已配置 git）：git add index.html && git commit -m "更新歌曲库" && git push
+   *    10. 等 1 分钟 GitHub Pages 重新构建，刷新网址即可看到歌曲已同步
+   *    ------------------------------------------------------------
+   *    注意：每次后台新增歌曲后想同步给访问者，都需要重复 1-9 步
+   *          （这是 localStorage 设计的限制；如需自动实时同步，
+   *           需要把歌曲也迁到 Supabase，工作量较大，留作后续优化）
+   *
+   * ============================================================
+   */
+  </script>
+</body>
+</html>
