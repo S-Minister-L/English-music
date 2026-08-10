@@ -307,7 +307,7 @@
     .bili-wrap iframe {
       position: absolute; top: 0; left: 0;
       width: 100%; height: 100%;
-      border: 0; frameborder: 0;
+      border: 0;
     }
 
     /* 兜底提示框（播放器加载失败时显示） */
@@ -791,7 +791,7 @@ const SHARED_CATEGORIES = [
   // ★ 共享数据版本号：每次更新 SHARED_SONGS 后必须改成更大的数字
   //   老访客刷新时会检测版本变化，自动同步新歌曲（保留访客自己加的歌）
   //   用 0 = 未启用自动同步；用时间戳数字（如 20260809）最直观
-  const SHARED_VERSION = 20260809;
+  const SHARED_VERSION = 20260811;
 
   // 虚拟分类名（始终存在于侧边栏，不可被用户删除/重命名）
   const VCAT_ALL = '全部歌曲';
@@ -816,31 +816,151 @@ const SHARED_CATEGORIES = [
     try { sessionStorage.removeItem(key); } catch (e) { /* ignore */ }
   }
 
-  // 读取全部歌曲
-  function loadSongs() {
+  /* ============================================================
+   * 歌曲/分类数据源（Supabase 优先，localStorage 兜底）
+   * ------------------------------------------------------------
+   * 读取：先查 Supabase（有就用，同时缓存到 localStorage 作为离线兜底）；
+   *       Supabase 不可用（离线/未配置密钥）时读 localStorage。
+   * 写入：
+   *   - 管理员在后台操作 → 优先调用 Supabase RPC（写云端，所有人实时同步），
+   *     同时写入 localStorage（离线兜底）。
+   *   - 匿名游客 → 只读（不写入，避免乱改管理员的数据）。
+   * Supabase 首次为空时：
+   *   - 如果 SHARED_SONGS 有内容 → 先作为种子写入 Supabase，之后用 Supabase 为准
+   * ============================================================ */
+  const CLOUD_READ_TIMEOUT = 4000;     // 云端读取超时时间（毫秒）
+  let _cloudStatus = null;            // 'online' | 'offline' | null（尚未检测）
+  let _pendingCloudSeed = false;      // 正在向 Supabase 写入 SHARED_SONGS 种子
+
+  // ---- 低阶：Supabase 云端直接读（Promise，超时拒绝）----
+  function _cloudLoadSongs() {
+    return new Promise(async (resolve, reject) => {
+      const client = initSupabase();
+      if (!client) return reject(new Error('NO_CLIENT'));
+      const timer = setTimeout(() => reject(new Error('TIMEOUT')), CLOUD_READ_TIMEOUT);
+      try {
+        const { data, error } = await client
+          .from('songs')
+          .select('id, title, artist, category, bilibili_bv, lyrics, lyrics_zh, annotations')
+          .order('updated_at', { ascending: false });
+        clearTimeout(timer);
+        if (error) return reject(error);
+        // 字段名归一化（Supabase 列名 snake_case → 前端 camelCase）
+        const list = (data || []).map(s => ({
+          id: s.id,
+          title: s.title,
+          artist: s.artist,
+          category: s.category || '',
+          bilibiliBV: s.bilibili_bv || '',
+          lyrics: s.lyrics || '',
+          lyricsZh: s.lyrics_zh || '',
+          annotations: Array.isArray(s.annotations) ? s.annotations : []
+        }));
+        resolve(list);
+      } catch (e) { clearTimeout(timer); reject(e); }
+    });
+  }
+  function _cloudLoadCategories() {
+    return new Promise(async (resolve, reject) => {
+      const client = initSupabase();
+      if (!client) return reject(new Error('NO_CLIENT'));
+      const timer = setTimeout(() => reject(new Error('TIMEOUT')), CLOUD_READ_TIMEOUT);
+      try {
+        const { data, error } = await client
+          .from('categories')
+          .select('name, sort_order')
+          .order('sort_order', { ascending: true });
+        clearTimeout(timer);
+        if (error) return reject(error);
+        resolve((data || []).map(c => c.name).filter(n => n && typeof n === 'string'));
+      } catch (e) { clearTimeout(timer); reject(e); }
+    });
+  }
+
+  // ---- 读取（Supabase 优先 + localStorage 缓存兜底 + 超时降级）----
+  let _songsCache = null;   // 页面生命周期内的内存缓存（避免重复请求数据库）
+  async function loadSongsAsync() {
+    if (_songsCache) return _songsCache.slice();
+    try {
+      const cloud = await _cloudLoadSongs();
+      _cloudStatus = 'online';
+      const normalized = normalizeSongs(cloud || []);
+      if (normalized.list && normalized.list.length > 0) {
+        _songsCache = normalized.list.map(s => ({ ...s, annotations: (s.annotations || []).map(a => ({ ...a })) }));
+        // 顺便缓存一份到 localStorage（下次 Supabase 挂了也能用）
+        safeLocalSet(STORE_KEY, JSON.stringify(_songsCache));
+        return _songsCache.slice();
+      }
+      // Supabase 有了但 songs 表为空 → 用 SHARED_SONGS 种子写入
+      if (SHARED_SONGS.length > 0 && !_pendingCloudSeed) {
+        _pendingCloudSeed = true;
+        console.log('[数据] Supabase songs 为空，写入 SHARED_SONGS 种子（', SHARED_SONGS.length, '首）');
+        await seedCloudWithSharedSongs();
+        _songsCache = SHARED_SONGS.map(s => ({ ...s, annotations: (s.annotations || []).map(a => ({...a})) }));
+        return _songsCache.slice();
+      }
+      // 空数组也行，让 seedDemoIfEmpty 判断后可能从 localStorage 初始化
+      return cloud.slice();
+    } catch (e) {
+      _cloudStatus = 'offline';
+      console.warn('[数据] 云端读取 songs 失败，降级到 localStorage：', e.message || e.code || e);
+      // 降级：读 localStorage，并用当前 SHARED_SONGS 覆盖同名歌曲，避免旧缓存只显示两条批注
+      const local = loadSongsLocal();
+      const normalized = normalizeSongs(local || []);
+      if (normalized.changed) {
+        safeLocalSet(STORE_KEY, JSON.stringify(normalized.list));
+      }
+      _songsCache = normalized.list.map(s => ({ ...s, annotations: (s.annotations || []).map(a => ({ ...a })) }));
+      return _songsCache.slice();
+    }
+  }
+
+  // 纯本地读（离线兜底使用；保留给 seedDemoIfEmpty 等老代码）
+  function loadSongsLocal() {
     try {
       const raw = safeLocalGet(STORE_KEY);
       return raw ? JSON.parse(raw) : [];
     } catch (e) { return []; }
   }
-  // 保存全部歌曲
-  function saveSongs(list) {
-    if (!safeLocalSet(STORE_KEY, JSON.stringify(list))) {
-      toast('本地保存失败（隐私模式？）', 'error');
-    }
-  }
-  // 生成唯一ID
-  function uid() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+  // 同步形式的 loadSongs（用于不支持 async 的老代码）：
+  //  如果内存缓存有值就返回；否则先读 localStorage 作为占位，后台异步加载云端。
+  function loadSongs() {
+    if (_songsCache) return _songsCache.slice();
+    const local = loadSongsLocal();
+    // 触发一次云端异步拉取（不阻塞），成功后自动刷新页面
+    loadSongsAsync().then(list => {
+      if (!_songsCache || _songsCache.length !== list.length) {
+        // 只有当云端数据比本地新（或有差异）时才触发重渲染
+        const changed = list.length !== local.length ||
+          JSON.stringify(list.slice(0,3).map(s=>s.id)) !== JSON.stringify(local.slice(0,3).map(s=>s.id));
+        if (changed) { _songsCache = list; try { render(); } catch(_){} }
+      }
+    }).catch(()=>{});
+    return local;
   }
 
-  /* ---------- 分类数据层（经验 524439：展示名收敛到 getCategoryDisplayName） ---------- */
-  // 默认分类（首次运行初始化）
-  const DEFAULT_CATEGORIES = [
-    '欧美女歌手', '欧美男歌手', '欧美组合', '流行金曲', '摇滚',
-    '乡村民谣', '爵士蓝调', 'R&B/灵魂', '影视原声', '圣诞/节日'
-  ];
-  function loadCategories() {
+  async function loadCategoriesAsync() {
+    try {
+      const cloud = await _cloudLoadCategories();
+      _cloudStatus = 'online';
+      if (cloud && cloud.length > 0) {
+        safeLocalSet(CAT_KEY, JSON.stringify(cloud));
+        return cloud.slice();
+      }
+      // 空：尝试从 SHARED_CATEGORIES 种子写入
+      if (SHARED_CATEGORIES.length > 0) {
+        await seedCloudWithSharedCats();
+        return SHARED_CATEGORIES.slice();
+      }
+      return cloud.slice();
+    } catch (e) {
+      _cloudStatus = 'offline';
+      console.warn('[数据] 云端读取 categories 失败，降级：', e.message || e.code);
+      return loadCategoriesLocal();
+    }
+  }
+  function loadCategoriesLocal() {
     try {
       const raw = safeLocalGet(CAT_KEY);
       if (!raw) return DEFAULT_CATEGORIES.slice();
@@ -849,8 +969,130 @@ const SHARED_CATEGORIES = [
       return arr.filter(s => typeof s === 'string' && s.trim().length > 0);
     } catch (e) { return DEFAULT_CATEGORIES.slice(); }
   }
-  function saveCategories(list) {
+  function loadCategories() {
+    const local = loadCategoriesLocal();
+    loadCategoriesAsync().then(cloud => {
+      if (cloud.length > 0 && JSON.stringify(cloud) !== JSON.stringify(local)) {
+        safeLocalSet(CAT_KEY, JSON.stringify(cloud));
+        try { render(); } catch(_){}
+      }
+    }).catch(()=>{});
+    return local;
+  }
+
+  // ---- 写入（管理员时走 Supabase RPC，同时缓存本地；非管理员只写本地）----
+  async function saveSongs(list) {
+    // 1. 无论如何都缓存本地（离线兜底 + 页面下次打开不白屏）
+    if (!safeLocalSet(STORE_KEY, JSON.stringify(list))) {
+      toast('本地保存失败（隐私模式？）', 'error');
+    }
+    _songsCache = list.slice();
+    // 2. 管理员才写云端
+    if (!isAdmin) return;
+    const client = initSupabase();
+    if (!client) return;
+    // 逐条通过 write_song RPC 写入（失败就 toast，不阻断其他）
+    let ok = 0, failed = 0;
+    for (const s of list) {
+      try {
+        const { error } = await client.rpc('write_song', {
+          pwd: ADMIN_PASSWORD,
+          song_id: s.id,
+          song_title: s.title,
+          song_artist: s.artist,
+          song_category: s.category || '',
+          song_bv: s.bilibiliBV || '',
+          song_lyrics: s.lyrics || '',
+          song_lyrics_zh: s.lyricsZh || '',
+          song_annotations: s.annotations || []
+        });
+        if (error) throw error;
+        ok++;
+      } catch (e) {
+        failed++;
+        console.error('云端保存失败：', s.title, e);
+      }
+    }
+    if (failed > 0) {
+      const info = parseSupabaseError({ code: 'CLOUD_WRITE_FAIL' });
+      toast(`云端同步：成功 ${ok} 首，失败 ${failed} 首（${info.title}）`, 'error');
+    }
+  }
+
+  async function saveCategories(list) {
     safeLocalSet(CAT_KEY, JSON.stringify(list));
+    if (!isAdmin) return;
+    const client = initSupabase();
+    if (!client) return;
+    try {
+      const { error } = await client.rpc('replace_all_categories', {
+        pwd: ADMIN_PASSWORD,
+        cat_names: list
+      });
+      if (error) throw error;
+    } catch (e) {
+      const info = parseSupabaseError(e);
+      toast('分类保存到云端失败：' + info.title, 'error');
+      if (info.hint) toast('提示：' + info.hint, 'error');
+    }
+  }
+
+  // ---- 单首删除（后台用）----
+  async function deleteSongCloud(songId) {
+    const client = initSupabase();
+    if (!client) return { ok: false };
+    try {
+      const { error } = await client.rpc('delete_song', {
+        pwd: ADMIN_PASSWORD, song_id: songId
+      });
+      if (error) throw error;
+      return { ok: true };
+    } catch (e) {
+      console.error('云端删除失败：', e);
+      const info = parseSupabaseError(e);
+      toast('云端删除失败：' + info.title, 'error');
+      return { ok: false, error: info };
+    }
+  }
+
+  // ---- 种子写入（Supabase 首次为空时写入 SHARED_SONGS/CATEGORIES）----
+  async function seedCloudWithSharedSongs() {
+    const client = initSupabase();
+    if (!client) return;
+    for (const s of SHARED_SONGS || []) {
+      try {
+        await client.rpc('write_song', {
+          pwd: ADMIN_PASSWORD,
+          song_id: s.id,
+          song_title: s.title,
+          song_artist: s.artist,
+          song_category: s.category || '',
+          song_bv: s.bilibiliBV || '',
+          song_lyrics: s.lyrics || '',
+          song_lyrics_zh: s.lyricsZh || '',
+          song_annotations: s.annotations || []
+        });
+      } catch (e) {
+        console.warn('种子写入单首失败：', s.title, e.message || e.code);
+      }
+    }
+  }
+  async function seedCloudWithSharedCats() {
+    const client = initSupabase();
+    if (!client) return;
+    try {
+      await client.rpc('replace_all_categories', {
+        pwd: ADMIN_PASSWORD,
+        cat_names: SHARED_CATEGORIES || DEFAULT_CATEGORIES.slice()
+      });
+    } catch (e) {
+      console.warn('种子分类写入失败：', e.message || e.code);
+    }
+  }
+
+  // 生成唯一ID
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
   // 把一个分类名映射为用于展示的友好名（向后兼容：空值 → 未分类）
   function getCategoryDisplayName(name) {
@@ -934,96 +1176,231 @@ const SHARED_CATEGORIES = [
     return true;
   }
 
-  // 默认示例数据（首次访问时初始化，方便用户参考结构）
+  /* ============================================================
+   * 数据初始化策略（改造后：云端 Supabase 优先）
+   * ------------------------------------------------------------
+   * seedDemoIfEmpty 不再是实际"初始化歌曲"——
+   *   现在歌曲/分类数据从 Supabase 云端读（见 loadSongsAsync），
+   *   Supabase 为空时自动用 SHARED_SONGS 作为种子写进云端。
+   * seedDemoIfEmpty 的职责：
+   *   1) 旧浏览器 localStorage 里有数据 → 保持可读（离线兜底场景）
+   *   2) 如果 Supabase 不可用，用 SHARED_SONGS 或示例初始化 localStorage
+   * ============================================================ */
   function seedDemoIfEmpty() {
-    // 1. 初始化分类：优先使用 SHARED_CATEGORIES，否则用 DEFAULT_CATEGORIES
+    // 先判断 Supabase 是否可用（初始化过）
+    const client = initSupabase();
+    if (client) {
+      // Supabase 可用 → 在 loadSongsAsync 里自动执行种子写入，这里无需再做
+      // 兜底：确保分类不为空（loadCategories 异步读取会覆盖）
+      const raw = safeLocalGet(CAT_KEY);
+      if (!raw) {
+        const initCats = (SHARED_CATEGORIES && SHARED_CATEGORIES.length > 0)
+          ? SHARED_CATEGORIES.slice()
+          : DEFAULT_CATEGORIES.slice();
+        safeLocalSet(CAT_KEY, JSON.stringify(initCats));
+      }
+      return;
+    }
+    // === Supabase 不可用（离线/密钥未配置）：完全走 localStorage ===
     const raw = safeLocalGet(CAT_KEY);
     if (!raw) {
       const initCats = (SHARED_CATEGORIES && SHARED_CATEGORIES.length > 0)
         ? SHARED_CATEGORIES.slice()
         : DEFAULT_CATEGORIES.slice();
-      saveCategories(initCats);
+      safeLocalSet(CAT_KEY, JSON.stringify(initCats));
     }
-    // 1b. 兼容性修复：旧用户歌曲里可能含有「不在分类列表中」的旧分类名。
-    //     扫描所有歌曲的分类字段，把缺失的分类自动追加进列表。
-    const songs = loadSongs();
+    const songs = loadSongsLocal();
+    // 1b. 兼容性修复：歌曲里缺失的分类自动追加
     if (songs.length > 0) {
-      const cats = loadCategories();
+      const cats = loadCategoriesLocal();
       const set = new Set(cats);
       let changed = false;
       for (const s of songs) {
         const k = (s.category || '').trim();
         if (k && !set.has(k) && !isVirtualCategory(k)) { set.add(k); cats.push(k); changed = true; }
       }
-      if (changed) saveCategories(cats);
+      if (changed) safeLocalSet(CAT_KEY, JSON.stringify(cats));
     }
-    // 2. 初始化歌曲：优先使用 SHARED_SONGS，否则用单首示例歌曲
-    if (songs.length > 0) return;
+    if (songs.length > 0) return;   // localStorage 已有歌曲就不用初始化
     if (SHARED_SONGS && SHARED_SONGS.length > 0) {
-      // 用 SHARED_SONGS 初始化（为每首歌重新生成 id 避免冲突）
       const cloned = SHARED_SONGS.map(s => ({
         ...s,
         id: uid(),
         annotations: (s.annotations || []).map(a => ({ ...a, id: uid() }))
       }));
-      saveSongs(cloned);
+      safeLocalSet(STORE_KEY, JSON.stringify(cloned));
       return;
     }
-    // 回退：默认示例歌曲（Yesterday Once More + 6 个批注）
+    // 回退示例
     const demo = {
       id: uid(),
       title: 'Yesterday Once More',
       artist: 'Carpenters',
       category: '流行金曲',
-      bilibiliBV: 'BV1Gp4y1W7qg',      // B站BV号（示例）
+      bilibiliBV: 'BV1Gp4y1W7qg',
       lyrics: 'When I was young\nI\'d listen to the radio\nWaiting for my favorite songs\nWhen they played I\'d sing along\nIt made me smile',
       lyricsZh: '当我年轻时\n我会听收音机\n等待我最爱的歌曲\n当它们播放时我会跟着唱\n那让我微笑',
       annotations: [
-        {
-          id: uid(), word: 'listen to', phonetic: '/ˈlɪsən tu/',
-          meaning: '听；倾听', grammar: '动词短语，后接名词或动名词',
-          collocation: 'listen to music / listen carefully',
-          example: 'I like to listen to music before sleep.',
-          level: 'basic'
-        },
-        {
-          id: uid(), word: 'favorite', phonetic: '/ˈfeɪvərɪt/',
-          meaning: '最喜爱的', grammar: '形容词，无比较级',
-          collocation: 'favorite song / favorite color',
-          example: 'This is my favorite book.',
-          level: 'basic'
-        },
-        {
-          id: uid(), word: 'radio', phonetic: '/ˈreɪdioʊ/',
-          meaning: '收音机；无线电', grammar: '名词',
-          collocation: 'listen to the radio / radio station',
-          example: 'She turned on the radio to hear the news.',
-          level: 'basic'
-        },
-        {
-          id: uid(), word: 'play', phonetic: '/pleɪ/',
-          meaning: '播放；演奏', grammar: '动词，可及物/不及物',
-          collocation: 'play a song / play the piano',
-          example: 'They played my favorite song at the party.',
-          level: 'basic'
-        },
-        {
-          id: uid(), word: 'sing along', phonetic: '/sɪŋ əˈlɔŋ/',
-          meaning: '跟着唱（与别人一起唱）', grammar: '动词短语',
-          collocation: 'sing along with the radio / sing along to a song',
-          example: 'When the chorus came, everyone began to sing along.',
-          level: 'basic'
-        },
-        {
-          id: uid(), word: 'smile', phonetic: '/smaɪl/',
-          meaning: '微笑；露出笑容', grammar: '动词/名词',
-          collocation: 'give a smile / smile at someone',
-          example: 'Her smile brightened up the room.',
-          level: 'basic'
-        }
+        { id: uid(), word: 'listen to', phonetic: '/ˈlɪsən tu/', meaning: '听；倾听', grammar: '动词短语，后接名词或动名词', collocation: 'listen to music / listen carefully', example: 'I like to listen to music before sleep.', level: 'basic' },
+        { id: uid(), word: 'favorite', phonetic: '/ˈfeɪvərɪt/', meaning: '最喜爱的', grammar: '形容词，无比较级', collocation: 'favorite song / favorite color', example: 'This is my favorite book.', level: 'basic' },
+        { id: uid(), word: 'radio', phonetic: '/ˈreɪdioʊ/', meaning: '收音机；无线电', grammar: '名词', collocation: 'listen to the radio / radio station', example: 'She turned on the radio to hear the news.', level: 'basic' },
+        { id: uid(), word: 'play', phonetic: '/pleɪ/', meaning: '播放；演奏', grammar: '动词，可及物/不及物', collocation: 'play a song / play the piano', example: 'They played my favorite song at the party.', level: 'basic' },
+        { id: uid(), word: 'sing along', phonetic: '/sɪŋ əˈlɔŋ/', meaning: '跟着唱（与别人一起唱）', grammar: '动词短语', collocation: 'sing along with the radio / sing along to a song', example: 'When the chorus came, everyone began to sing along.', level: 'basic' },
+        { id: uid(), word: 'smile', phonetic: '/smaɪl/', meaning: '微笑；露出笑容', grammar: '动词/名词', collocation: 'give a smile / smile at someone', example: 'Her smile brightened up the room.', level: 'basic' }
       ]
     };
-    saveSongs([demo]);
+    safeLocalSet(STORE_KEY, JSON.stringify([demo]));
+  }
+
+  /* ============================================================
+   * 自动版本同步：让老访客刷新就能看到你更新的歌曲
+   * ------------------------------------------------------------
+   * 工作原理：
+   *   1. 你更新 SHARED_SONGS 后，把 SHARED_VERSION 改成更大的数字
+   *   2. 老访客刷新时，对比 localStorage 里的版本号 vs SHARED_VERSION
+   *   3. 版本号不一致 → 自动合并：
+   *      - SHARED_SONGS 里有但老访客没有的歌 → 追加
+   *      - SHARED_SONGS 里有且老访客也有的歌 → 用新版覆盖（你改的歌词会同步）
+   *      - 老访客自己加的歌 → 保留不动
+   *   4. 更新 localStorage 里的版本号
+   * ============================================================ */
+  const SHARED_VERSION_KEY = 'esl_shared_version';
+
+  /* ============================================================
+   * ID 归一化（解决重复 Yesterday Once More 的核心）
+   * ------------------------------------------------------------
+   * 问题场景：
+   *   旧版 seedDemoIfEmpty 生成的 Yesterday Once More 的 ID 叫 old-msl...
+   *   SHARED_SONGS 里写入的 ID 叫 mslze3h0cy7chm
+   *   → 两首歌 ID 不同 → 被当成两首不同的歌 → 重复显示
+   *
+   * 去重规则：按「歌名(大小写不敏感) + 歌手(大小写不敏感)」配对
+   *   如果 SHARED_SONGS 里能找到「同歌名+同歌手」的歌，就用
+   *   SHARED_SONGS 的那条作为"权威版本"，替换掉本地那条（ID 也同步成
+   *   SHARED_SONGS 的 ID），这样两首歌会合并成一首，不再重复。
+   *
+   * 同时移除「完全相同歌名+歌手」的重复（本地两首自己重复的情况）。
+   * ============================================================ */
+  function normalizeSongs(songs) {
+    if (!songs || songs.length === 0) return { list: songs, changed: false, dedupCount: 0 };
+    // key = 歌名|歌手（都 trim 后转小写，方便比较）
+    const keyOf = s => `${(s.title || '').trim().toLowerCase()}|${(s.artist || '').trim().toLowerCase()}`;
+    // 1. 先构建 SHARED_SONGS 的权威映射（key → SHARED_SONGS 的整首对象）
+    const sharedByKey = new Map();
+    for (const s of SHARED_SONGS || []) sharedByKey.set(keyOf(s), s);
+
+    const result = [];
+    const seenKeys = new Map();   // key → 已放入 result 的索引
+    let changed = false;
+    let dedupCount = 0;
+
+    for (const song of songs) {
+      const key = keyOf(song);
+      // 2. 如果 SHARED_SONGS 里有同 key 的权威版本 → 用权威版本替换（ID/歌词/分类都会统一）
+      if (sharedByKey.has(key)) {
+        const auth = sharedByKey.get(key);
+        // 深拷贝，避免引用污染
+        const replaced = {
+          ...auth,
+          annotations: (auth.annotations || []).map(a => ({ ...a }))
+        };
+        if (seenKeys.has(key)) {
+          // 3. 本地已经有同 key 的歌了 → 这一条是重复的，跳过（去重计数 +1）
+          dedupCount++;
+          changed = true;
+          continue;
+        }
+        // 检查是否真的需要替换（ID 相同就不用浪费）
+        if (replaced.id !== song.id) changed = true;
+        result.push(replaced);
+        seenKeys.set(key, result.length - 1);
+        continue;
+      }
+      // 4. SHARED_SONGS 里没有 → 检查本地是不是重复了
+      if (seenKeys.has(key)) {
+        dedupCount++;
+        changed = true;
+        continue;
+      }
+      result.push(song);
+      seenKeys.set(key, result.length - 1);
+    }
+    return { list: result, changed, dedupCount };
+  }
+
+  function syncSharedData() {
+    // =============================================================
+    // 改造后：如果 Supabase 可用，数据的"唯一真相来源"就是云端数据库
+    // → 不需要再做 SHARED_VERSION / 本地合并（loadSongsAsync 已经拉取云端）
+    // → 这里的 syncSharedData 只负责「离线兜底场景」和「第一次切换云端前的本地区域归一化」
+    // =============================================================
+    const client = initSupabase();
+    if (client) {
+      // Supabase 可用：只做一次本地 localStorage 归一化（避免以后离线打开时看到重复）
+      // 但不写入 Supabase（云端来源就是权威，不把本地可能混乱的数据写回去）
+      const songs = loadSongsLocal();
+      const norm = normalizeSongs(songs);
+      if (norm.changed) {
+        safeLocalSet(STORE_KEY, JSON.stringify(norm.list));
+        if (norm.dedupCount > 0) console.log(`[归一化] 本地离线缓存合并 ${norm.dedupCount} 首重复`);
+      }
+      // 版本号标记为当前版本（免得以后离线打开再重复跑）
+      if (SHARED_VERSION) safeLocalSet(SHARED_VERSION_KEY, String(SHARED_VERSION));
+      return;
+    }
+
+    // === 离线/未配置密钥：保留原来的完整合并逻辑 ===
+    if (SHARED_SONGS.length === 0) return;
+    const storedVersion = parseInt(safeLocalGet(SHARED_VERSION_KEY) || '0', 10);
+    let songs = loadSongsLocal();
+
+    const norm = normalizeSongs(songs);
+    if (norm.changed) {
+      songs = norm.list;
+      safeLocalSet(STORE_KEY, JSON.stringify(songs));
+      const keptCats = new Set();
+      for (const s of songs) if (s.category) keptCats.add(s.category);
+      const sharedCatSet = new Set(SHARED_CATEGORIES || []);
+      const curCats = loadCategoriesLocal();
+      const newCats = curCats.filter(c =>
+        isVirtualCategory(c) || sharedCatSet.has(c) || keptCats.has(c)
+      );
+      if (newCats.length !== curCats.length) safeLocalSet(CAT_KEY, JSON.stringify(newCats));
+      if (norm.dedupCount > 0) toast(`🔧 自动归一化：已合并 ${norm.dedupCount} 首重复歌曲`, 'success');
+    }
+
+    const sharedMap = new Map(SHARED_SONGS.map(s => [s.id, s]));
+    let hasReplace = false;
+    let mergedBase = songs.map(s => {
+      if (!sharedMap.has(s.id)) return s;
+      const shared = sharedMap.get(s.id);
+      hasReplace = true;
+      return { ...shared, annotations: (shared.annotations || []).map(a => ({ ...a })) };
+    });
+    const existingIds = new Set(mergedBase.map(s => s.id));
+    const toAdd = SHARED_SONGS.filter(s => !existingIds.has(s.id));
+    if (toAdd.length > 0) {
+      for (const s of toAdd) {
+        mergedBase.push({ ...s, annotations: (s.annotations || []).map(a => ({ ...a })) });
+      }
+      hasReplace = true;
+    }
+    if (hasReplace) safeLocalSet(STORE_KEY, JSON.stringify(mergedBase));
+
+    if (SHARED_CATEGORIES.length > 0) {
+      const cats = loadCategoriesLocal();
+      const set = new Set(cats);
+      let catChanged = false;
+      for (const c of SHARED_CATEGORIES) {
+        if (!set.has(c) && !isVirtualCategory(c)) { set.add(c); cats.push(c); catChanged = true; }
+      }
+      if (catChanged) safeLocalSet(CAT_KEY, JSON.stringify(cats));
+    }
+
+    if (SHARED_VERSION && storedVersion < SHARED_VERSION) {
+      safeLocalSet(SHARED_VERSION_KEY, String(SHARED_VERSION));
+      console.log(`[自动同步(离线)] 已更新到版本 ${SHARED_VERSION}`);
+    }
   }
 
   /* ============================================================
@@ -1507,20 +1884,25 @@ const SHARED_CATEGORIES = [
   function parseSupabaseError(err) {
     const code = err && err.code;
     const msg = (err && err.message) || '未知错误';
+    // 自定义：歌曲/分类云端写入失败（详见 saveSongs 逻辑）
+    if (code === 'CLOUD_WRITE_FAIL') {
+      return { level: 'warning', title: '部分歌曲写入云端失败',
+        hint: '最常见原因：1) songs 表未建或 write_song RPC 不存在 → 请执行文末教程三的建表+建函数 SQL；2) 网络不稳 → 稍后重试。本次已写入本地缓存，不会丢失。' };
+    }
     // PGRST 系列是 PostgREST 返回码（Supabase REST API 底层）
     switch (code) {
       case 'PGRST205':
       case '42P01':  // PostgreSQL: relation does not exist
-        return { level: 'critical', title: '⚠️ messages 表不存在',
-          hint: '请在 Supabase 后台 → SQL Editor 执行文末教程「二」里的建表 SQL（包括 RLS 策略）' };
+        return { level: 'critical', title: '⚠️ 表不存在',
+          hint: '如果是 messages 表：执行文末教程二的 SQL；如果是 songs/categories 表或 write_song 函数不存在：执行文末教程三的建表+分类+3 个 SECURITY DEFINER 存储过程 SQL' };
       case 'PGRST301':
       case 'PGRST401':
       case '42501':  // PostgreSQL: permission denied
         return { level: 'critical', title: '🔐 权限不足（RLS 策略缺失）',
-          hint: '请在 SQL Editor 执行：alter table messages enable row level security; create policy "任何人可读留言" on messages for select using (true); create policy "任何人可发布留言" on messages for insert with check (true);（删除留言请进入 Supabase 后台 → Table Editor 手动处理，或在 SQL Editor 执行 drop policy if exists "任何人可删除留言" on messages;）' };
+          hint: 'messages 表 RLS: create policy "任何人可读留言" on messages for select using (true); create policy "任何人可发布留言" on messages for insert with check (true); songs/categories 表 RLS: create policy "任何人可读歌曲" on songs for select using (true); create policy "任何人可读分类" on categories for select using (true); 写入通过 SECURITY DEFINER RPC，不需要 insert policy' };
       case 'PGRST116':
         return { level: 'warning', title: '列不存在或类型不匹配',
-          hint: '请确认 messages 表含有列：id(uuid) / song_id(text) / nickname(text) / content(text) / created_at(timestamptz)' };
+          hint: 'messages 表需要：id(uuid) / song_id(text) / nickname(text) / content(text) / created_at(timestamptz)；songs 表需要：id(text, pk) / title / artist / category / bilibili_bv / lyrics / lyrics_zh / annotations(jsonb) / created_at / updated_at' };
       case '23514':  // PostgreSQL: check constraint violation
         return { level: 'warning', title: '字段校验失败',
           hint: '昵称或内容可能为空或超长' };
@@ -1531,15 +1913,15 @@ const SHARED_CATEGORIES = [
     // RPC / 存储过程错误
     if (code === 'P0001' || msg.includes('password') || msg.includes('管理员')) {
       return { level: 'critical', title: '🔐 管理员密码校验失败',
-        hint: '请确保代码中的 ADMIN_PASSWORD 与 Supabase 存储过程 delete_message_admin 里的密码完全一致（见文末教程）' };
+        hint: '请确保代码中的 ADMIN_PASSWORD 与 Supabase 存储过程 delete_message_admin / write_song / delete_song / replace_all_categories 里的密码完全一致（见文末教程）' };
     }
     if (msg.includes('function') && msg.includes('does not exist')) {
-      return { level: 'critical', title: '🧩 RPC 函数 delete_message_admin 不存在',
-        hint: '请在 Supabase SQL Editor 执行文末教程「二」里新增的 SECURITY DEFINER 函数 SQL 段' };
+      return { level: 'critical', title: '🧩 RPC 函数不存在',
+        hint: '请在 Supabase SQL Editor 执行文末教程二和教程三的完整 SQL（包含 messages/留言/歌曲/分类 3个 SECURITY DEFINER 函数）' };
     }
     if (msg.includes('execute') && msg.includes('permission')) {
       return { level: 'critical', title: '🔐 RPC 执行权限不足',
-        hint: '请执行 SQL: grant execute on function delete_message_admin(uuid, text) to anon, authenticated;' };
+        hint: '请执行 grant execute on function delete_message_admin(uuid, text) to anon, authenticated; 同样对 write_song / delete_song / replace_all_categories 也 grant execute' };
     }
     // 网络层错误
     if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
@@ -1552,13 +1934,14 @@ const SHARED_CATEGORIES = [
     }
     return { level: 'error', title: '❌ ' + msg, hint: '' };
   }
-  function formatSupabaseErrorHtml(err) {
+  function formatSupabaseErrorHtml(err, songId) {
     const info = parseSupabaseError(err);
     const color = info.level === 'warning' ? '#d97706' : 'var(--danger)';
     return `
       <div class="msg-empty" style="color:${color}">
         ${escapeHtml(info.title)}<br/>
         ${info.hint ? `<span style="font-size:12px;display:block;margin-top:4px">${escapeHtml(info.hint)}</span>` : ''}
+        ${songId ? `<span style="font-size:11px;opacity:.75;display:block;margin-top:6px">调试信息：当前歌曲 song_id = ${escapeHtml(String(songId))}（可在 Supabase SQL Editor 执行 select * from messages where song_id = '${escapeHtml(String(songId))}' 验证数据是否存在）</span>` : ''}
       </div>`;
   }
 
@@ -1594,16 +1977,17 @@ const SHARED_CATEGORIES = [
         .eq('song_id', songId)
         .order('created_at', { ascending: false });
       if (error) throw error;
+      console.log(`[留言加载] song_id=${songId}，共 ${data ? data.length : 0} 条`);
       renderMessages(data || []);
     } catch (e) {
-      console.error('loadMessages 错误：', e);
+      console.error('loadMessages 错误：song_id=' + songId, e);
       // 额外探测：区分表不存在 vs 其他错误
       const probe = await probeMessagesTable(client);
       let errToUse = e;
       if (!probe.ok && (probe.error && (probe.error.code === 'PGRST205' || probe.error.code === '42P01' || probe.error.code === 'PGRST301'))) {
         errToUse = probe.error;
       }
-      listEl.innerHTML = formatSupabaseErrorHtml(errToUse);
+      listEl.innerHTML = formatSupabaseErrorHtml(errToUse, songId);
     }
   }
 
@@ -1962,13 +2346,29 @@ const SHARED_CATEGORIES = [
     }, 0);
   }
 
-  // 删除歌曲
-  function deleteSong(id) {
+  // 删除歌曲（管理员：先删云端，再删本地；离线：仅删本地）
+  async function deleteSong(id) {
     if (!confirm('确认删除这首歌？所有批注也会一并删除。')) return;
+    // 1. 先本地立刻删除（UI 上响应快）
     const list = loadSongs().filter(s => s.id !== id);
-    saveSongs(list);
-    toast('已删除', 'success');
+    _songsCache = list.slice();
+    safeLocalSet(STORE_KEY, JSON.stringify(list));
     render();
+    toast('本地已删除，同步云端中...', '');
+    // 2. 管理员时尝试云端删除
+    if (isAdmin && initSupabase()) {
+      const res = await deleteSongCloud(id);
+      if (res.ok) {
+        toast('✅ 已同步删除云端歌曲', 'success');
+      } else {
+        // 删除失败：如果用户想继续就 toast 提示，不回滚（本地已经删了，下次启动同步时云端会再出现）
+        toast('⚠️ 云端删除失败，请检查网络或稍后重试', 'error');
+      }
+    } else if (!isAdmin) {
+      toast('已删除（非管理员：仅删除本地浏览器缓存，不影响云端）', 'success');
+    } else {
+      toast('已删除（本地，Supabase 未配置）', 'success');
+    }
   }
 
   // ----- 批注编辑器 -----
@@ -2228,6 +2628,7 @@ const SHARED_CATEGORIES = [
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
             <button class="btn btn-primary" onclick="generateSharedCode()">📋 生成共享代码</button>
             <button class="btn btn-success" onclick="copySharedCode()">📋 一键复制全部</button>
+            <button class="btn" onclick="forceDedupSongs()">🔧 一键修复重复歌曲</button>
           </div>
           <textarea id="sharedCodePreview" style="min-height:220px;font-family:monospace;font-size:12px;background:#fafafa" placeholder="点上方「生成共享代码」按钮，这里会显示可粘贴到 index.html 的代码..." readonly></textarea>
         </div>
@@ -2242,6 +2643,8 @@ const SHARED_CATEGORIES = [
     // 用 JSON.stringify 输出紧凑但可读的代码（缩进 2 空格）
     const songsCode = JSON.stringify(songs, null, 2);
     const catsCode = JSON.stringify(cats, null, 2);
+    // ★ 版本号用当前时间戳，确保每次生成都不一样，老访客刷新才会自动同步
+    const newVersion = Date.now();
     const snippet =
 `// ===== 粘贴到 index.html 顶部对应的常量里 =====
 // 1. 替换 SHARED_SONGS = [...] 这一行（注意末尾不要漏掉分号）
@@ -2249,10 +2652,13 @@ const SHARED_SONGS = ${songsCode};
 
 // 2. 替换 SHARED_CATEGORIES = [...] 这一行
 const SHARED_CATEGORIES = ${catsCode};
+
+// 3. 替换 SHARED_VERSION = 数字 这一行（每次更新都要变，老访客刷新才会自动同步）
+const SHARED_VERSION = ${newVersion};
 // ===== 结束 =====`;
     const ta = document.getElementById('sharedCodePreview');
     if (ta) ta.value = snippet;
-    toast('已生成代码，点「一键复制全部」复制', 'success');
+    toast('已生成代码（含版本号 ' + newVersion + '），点「一键复制全部」复制', 'success');
   }
   async function copySharedCode() {
     const ta = document.getElementById('sharedCodePreview');
@@ -2265,6 +2671,30 @@ const SHARED_CATEGORIES = ${catsCode};
       ta.select();
       toast('请按 Ctrl+C 手动复制', '');
     }
+  }
+
+  // 后台「一键修复重复歌曲」按钮逻辑：强制归一化 + 自动刷新页面
+  function forceDedupSongs() {
+    const before = loadSongs().length;
+    const norm = normalizeSongs(loadSongs());
+    if (!norm.changed) {
+      toast(`✅ 当前没有检测到重复歌曲（共 ${before} 首）`, 'success');
+      return;
+    }
+    saveSongs(norm.list);
+    // 同归一化第 2 步：清理孤立分类
+    const keptCats = new Set();
+    for (const s of norm.list) if (s.category) keptCats.add(s.category);
+    const sharedCatSet = new Set(SHARED_CATEGORIES || []);
+    const curCats = loadCategories();
+    const newCats = curCats.filter(c =>
+      isVirtualCategory(c) || sharedCatSet.has(c) || keptCats.has(c)
+    );
+    if (newCats.length !== curCats.length) saveCategories(newCats);
+    const merged = norm.list.length;
+    const removed = before - merged;
+    toast(`🔧 修复完成：合并 ${removed} 首重复，当前 ${merged} 首。刷新中...`, 'success');
+    setTimeout(() => { render(); }, 600);
   }
 
   function exportJson() {
@@ -2348,6 +2778,20 @@ const SHARED_CATEGORIES = ${catsCode};
    * 第十部分：初始化启动
    * ============================================================ */
   seedDemoIfEmpty();
+  syncSharedData();
+  // ★ 云端优先：启动后立刻发起一次异步拉取，成功时自动重渲染（解决"首页先展示本地、再更新"）
+  (async function warmUpCloud() {
+    try {
+      const client = initSupabase();
+      if (!client) return;
+      const songs = await loadSongsAsync();
+      await loadCategoriesAsync();
+      // 如果拉到了和内存缓存不一样的内容，就再 render 一次（已经在 loadSongsAsync 内部 render 过了）
+      console.log(`[启动] 云端就绪，共 ${songs.length} 首歌（云端优先模式：以后你在后台改歌所有人实时看到）`);
+    } catch (e) {
+      console.warn('[启动] 云端预热失败，使用本地缓存模式：', e.message || e);
+    }
+  })();
   render();
 
   /* ============================================================
@@ -2471,33 +2915,146 @@ const SHARED_CATEGORIES = ${catsCode};
    *      - 音视频 → 直接调用 B 站官方接口，不存储文件
    *
    * ============================================================
-   * 七、如何把后台添加的歌曲同步给所有访问者（GitHub Pages 部署后用）
+   * 七、（推荐！云端优先）把歌曲/分类也迁到 Supabase 云端
+   *    ============================================================
+   *    这样以后你在后台加/改/删歌曲，**所有人立刻能看到**，
+   *    不需要生成 JSON → 粘贴 → 上传 GitHub 这套流程。
    *    ------------------------------------------------------------
-   *    背景：歌曲数据存在浏览器 localStorage，是「按域名 + 浏览器」
-   *          隔离的。你在自己浏览器后台添加的歌曲，别人访问同一网址
-   *          也看不到。需要用「共享代码」机制把数据硬编码进 index.html。
+   *    原理：
+   *      - 启动时先查 Supabase 的 songs 表读取所有歌曲（读云端）
+   *      - 管理员后台新增/修改/删除时调用 PostgreSQL SECURITY DEFINER
+   *        存储过程（在服务端校验管理员密码）写回云端
+   *      - Supabase 不可用时自动降级读 localStorage（离线兜底）
+   *      - SHARED_SONGS 自动作为种子写入 songs 空表（首次启动）
    *    ------------------------------------------------------------
-   *    操作步骤：
-   *    1. 在你已有完整歌曲数据的浏览器里打开网站（如 localhost 或 github.io）
-   *    2. 右下角 ⚙️ → 输入密码进后台 → 顶部切到「💾 JSON 备份」标签
-   *    3. 滚动到底部「🌐 同步给所有访问者」区域
-   *    4. 点「📋 生成共享代码」→ 文本框出现两段 JS 代码
-   *    5. 点「📋 一键复制全部」→ 复制到剪贴板
-   *    6. 用 VS Code 打开本地 index.html，找到顶部这两行：
-   *         const SHARED_SONGS = [];       // 大约在第 700 行
-   *         const SHARED_CATEGORIES = [];
-   *    7. 把复制的代码里的 SHARED_SONGS = [...] 整段替换掉 [...] 部分
-   *       把 SHARED_CATEGORIES = [...] 整段替换掉 [...] 部分
-   *       （只替换等号右边 [...]，保留 const 和分号）
-   *    8. 保存 index.html (Ctrl+S)
-   *    9. 重新上传 index.html 到 GitHub：
-   *       - 方法 A：GitHub 仓库页面 → 添加文件 → 上传文件 → 拖入新的 index.html
-   *       - 方法 B（已配置 git）：git add index.html && git commit -m "更新歌曲库" && git push
-   *    10. 等 1 分钟 GitHub Pages 重新构建，刷新网址即可看到歌曲已同步
+   *    操作：在 Supabase 项目 → SQL Editor → New query，
+   *         把下列整段 SQL 复制进去，点「运行」（Run）。
+   *    ------- 开始复制（教程三：歌曲/分类表 + 3 个 RPC 函数）-------
+   *       -- 1. 歌曲表
+   *       create table if not exists songs (
+   *         id text primary key,            -- 前端 uid() 生成的 ID
+   *         title text not null,            -- 歌名
+   *         artist text not null,           -- 歌手
+   *         category text,                  -- 分类名
+   *         bilibili_bv text,               -- B站 BV 号
+   *         lyrics text,                    -- 英文歌词（\n 换行）
+   *         lyrics_zh text,                 -- 中文翻译
+   *         annotations jsonb default '[]', -- 批注 JSON 数组
+   *         created_at timestamptz default now(),
+   *         updated_at timestamptz default now()
+   *       );
+   *       create index if not exists songs_cat_idx on songs(category);
+   *
+   *       -- 2. 分类表
+   *       create table if not exists categories (
+   *         id uuid primary key default gen_random_uuid(),
+   *         name text not null unique,
+   *         sort_order integer not null default 0,
+   *         created_at timestamptz default now()
+   *       );
+   *
+   *       -- 3. RLS：允许任何人读（管理员写操作通过 RPC，不需要写级 RLS）
+   *       alter table songs enable row level security;
+   *       alter table categories enable row level security;
+   *       drop policy if exists "任何人可读歌曲" on songs;
+   *       drop policy if exists "任何人可读分类" on categories;
+   *       create policy "任何人可读歌曲" on songs for select using (true);
+   *       create policy "任何人可读分类" on categories for select using (true);
+   *
+   *       -- 4. 管理员密码写死的 SECURITY DEFINER 函数（3 个）
+   *       create or replace function write_song(
+   *         pwd text, song_id text, song_title text, song_artist text,
+   *         song_category text, song_bv text, song_lyrics text,
+   *         song_lyrics_zh text, song_annotations jsonb
+   *       ) returns void language plpgsql security definer as $$
+   *       declare
+   *         ADMIN_PWD constant text := '99058122Wamm';  -- ★ 和代码 ADMIN_PASSWORD 一致
+   *       begin
+   *         if pwd <> ADMIN_PWD then
+   *           raise exception '管理员密码错误' using errcode = 'P0001';
+   *         end if;
+   *         insert into songs(id,title,artist,category,bilibili_bv,lyrics,lyrics_zh,annotations,updated_at)
+   *         values (song_id,song_title,song_artist,song_category,song_bv,song_lyrics,song_lyrics_zh,song_annotations,now())
+   *         on conflict (id) do update set
+   *           title=excluded.title, artist=excluded.artist,
+   *           category=excluded.category, bilibili_bv=excluded.bilibili_bv,
+   *           lyrics=excluded.lyrics, lyrics_zh=excluded.lyrics_zh,
+   *           annotations=excluded.annotations, updated_at=now();
+   *       end; $$;
+   *       grant execute on function write_song(text,text,text,text,text,text,text,text,jsonb)
+   *         to anon, authenticated;
+   *
+   *       create or replace function delete_song(pwd text, song_id text)
+   *       returns void language plpgsql security definer as $$
+   *       declare
+   *         ADMIN_PWD constant text := '99058122Wamm';
+   *       begin
+   *         if pwd <> ADMIN_PWD then
+   *           raise exception '管理员密码错误' using errcode = 'P0001';
+   *         end if;
+   *         delete from songs where id = song_id;
+   *       end; $$;
+   *       grant execute on function delete_song(text, text) to anon, authenticated;
+   *
+   *       create or replace function replace_all_categories(pwd text, cat_names text[])
+   *       returns void language plpgsql security definer as $$
+   *       declare
+   *         ADMIN_PWD constant text := '99058122Wamm';
+   *       begin
+   *         if pwd <> ADMIN_PWD then
+   *           raise exception '管理员密码错误' using errcode = 'P0001';
+   *         end if;
+   *         delete from categories;
+   *         for i in 1..array_length(cat_names, 1) loop
+   *           insert into categories(name, sort_order)
+   *           values (cat_names[i], i)
+   *           on conflict (name) do update set sort_order = i;
+   *         end loop;
+   *       end; $$;
+   *       grant execute on function replace_all_categories(text, text[])
+   *         to anon, authenticated;
+   *    ------- 结束复制 -------
    *    ------------------------------------------------------------
-   *    注意：每次后台新增歌曲后想同步给访问者，都需要重复 1-9 步
-   *          （这是 localStorage 设计的限制；如需自动实时同步，
-   *           需要把歌曲也迁到 Supabase，工作量较大，留作后续优化）
+   *    ⚠️ 密码修改提示（每次改密码要同步 4 处）：
+   *       1) 本文件顶部 JS 常量 ADMIN_PASSWORD
+   *       2) Supabase delete_message_admin 函数（教程二的 SQL）
+   *       3) write_song / delete_song 函数（上方 SQL）
+   *       4) replace_all_categories 函数（上方 SQL）
+   *
+   * ============================================================
+   * 八、云端优先模式下你如何更新网站？（再也不需要 JSON 了）
+   *    ------------------------------------------------------------
+   *    部署完成后，以后你要做的一切：
+   *
+   *    ▶️ 新增/修改歌曲：
+   *      1. 打开网址（github.io 或 localhost 都行）
+   *      2. 右下角 ⚙️ → 输入密码进后台 → 🎵 歌曲管理 / ➕ 新增歌曲
+   *      3. 点「保存歌曲」→ 弹出 toast「本地已保存，同步云端中...」
+   *      4. 几秒后再弹「云端同步：成功 N 首」✅ → 完成
+   *         → 其他人（手机 / 其他电脑）刷新页面立刻看到新歌
+   *
+   *    ▶️ 分类管理：
+   *      1. 后台 → 📚 分类管理 → 增/删/改/排序
+   *      2. 自动同步 Supabase → 所有人刷新立刻看到相同分类
+   *
+   *    ▶️ 删除歌曲：
+   *      1. 后台 → 🎵 歌曲管理 → 某歌右侧「删除」
+   *      2. 确认 → 本地立刻删掉 → 调用 delete_song RPC 删云端
+   *
+   *    ▶️ 批注编辑：
+   *      1. 后台 → 📝 批注编辑器 → 保存
+   *      2. saveSongs 自动把整首歌 write_song RPC 写回云端
+   *
+   *    🚫 再也不需要做的事：
+   *      - 生成共享代码
+   *      - 粘贴到 index.html
+   *      - 重新上传 GitHub（除非你改了样式/结构/功能代码，
+   *        或者新增了歌曲后连 SHARED_SONGS 也想一并更新，
+   *        作为以后换域名/数据库的备份用）
+   *    ------------------------------------------------------------
+   *    兜底：如果 Supabase 挂了或在离线环境打开
+   *      页面会自动降级读取 localStorage 缓存
+   *      （只要之前在这台浏览器打开过，就有缓存可看）
    *
    * ============================================================
    */
